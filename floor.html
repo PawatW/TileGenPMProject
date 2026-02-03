@@ -5,44 +5,145 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Advanced Tile Layout & Wall Generator</title>
     <style>
-        body { margin: 0; display: flex; height: 100vh; font-family: 'Sarabun', sans-serif; overflow: hidden; }
-        
-        /* Sidebar Styles */
-        #sidebar {
-            width: 320px;
-            background: #f8f9fa;
-            padding: 15px;
-            display: flex;
-            flex-direction: column;
-            border-right: 1px solid #ddd;
-            overflow-y: auto;
+        :root {
+            --bg: #f5f2ea;
+            --panel: #ffffff;
+            --panel-border: #e5e1d8;
+            --text: #1c1a17;
+            --muted: #6f6a60;
+            --primary: #b48a3d;
+            --primary-strong: #9a742e;
+            --success: #3f7d5c;
+            --shadow: none;
+            --shadow-sm: none;
+            --radius: 12px;
         }
 
-        h2, h3 { color: #333; margin: 10px 0; }
-        
-        .control-group { background: white; padding: 15px; border-radius: 8px; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
-        
-        label { display: block; font-size: 14px; margin-bottom: 5px; color: #555; }
-        input[type="range"], input[type="number"] { width: 100%; margin-bottom: 10px; }
-        button { width: 100%; padding: 8px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; margin-top: 5px; }
-        button:hover { background: #0056b3; }
-        button.secondary { background: #6c757d; }
+        body {
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            font-family: 'Sarabun', 'Inter', 'Segoe UI', system-ui, sans-serif;
+            overflow: hidden;
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        /* Sidebar Styles */
+        #sidebar {
+            width: 340px;
+            background: #f7f4ed;
+            padding: 22px;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--panel-border);
+            overflow-y: auto;
+            gap: 14px;
+        }
+
+        h2, h3 { color: var(--text); margin: 8px 0; }
+        h2 { font-size: 20px; font-weight: 700; letter-spacing: 0.3px; }
+        h3 { font-size: 14px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; }
+
+        .control-group {
+            background: var(--panel);
+            padding: 16px 16px 14px;
+            border-radius: var(--radius);
+            margin-bottom: 14px;
+            border: 1px solid var(--panel-border);
+        }
+
+        label { display: block; font-size: 13px; margin-bottom: 6px; color: var(--muted); font-weight: 600; }
+
+        input[type="range"],
+        input[type="number"],
+        select {
+            width: 100%;
+            margin-bottom: 10px;
+            border-radius: 10px;
+            border: 1px solid var(--panel-border);
+            padding: 8px 10px;
+            background: #fff;
+            color: var(--text);
+            outline: none;
+        }
+
+        input[type="range"] {
+            padding: 0;
+            height: 6px;
+            accent-color: var(--primary);
+        }
+
+        button {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            margin-top: 6px;
+            font-weight: 600;
+            transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        button:hover {
+            background: var(--primary-strong);
+            transform: translateY(-1px);
+        }
+
+        button.secondary {
+            background: #8b8579;
+        }
+
+        button.secondary:hover { background: #6f6a60; }
+
+        .section-note {
+            font-size: 12px;
+            color: var(--muted);
+            margin: 6px 0 0 0;
+        }
 
         .swatch-grid {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
             margin-top: 10px;
         }
+
+        .swatch-item {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
         .tile-swatch {
-            height: 70px;
-            border-radius: 6px;
-            border: 2px solid transparent;
+            height: 74px;
+            border-radius: 12px;
+            border: 1px solid var(--panel-border);
             cursor: pointer;
             background-size: cover;
             background-position: center;
+            overflow: hidden;
+            transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
         }
-        .tile-swatch.active { border-color: #007bff; }
+
+        .tile-swatch:hover {
+            transform: translateY(-2px);
+            border-color: var(--primary);
+        }
+
+        .tile-swatch.active {
+            border-color: var(--primary);
+            outline: 2px solid rgba(180, 138, 61, 0.2);
+        }
+
+        .swatch-caption {
+            font-size: 12px;
+            color: var(--muted);
+            text-align: center;
+            font-weight: 600;
+        }
 
         .toggle-row {
             display: flex;
@@ -50,27 +151,74 @@
             justify-content: space-between;
             gap: 10px;
         }
-        .toggle-row input { width: auto; }
+
+        .toggle-row input { width: auto; accent-color: var(--primary); }
+
+        .hidden-select { display: none; }
 
         /* Grid Editor Styles */
         #grid-editor {
             display: grid;
-            gap: 2px;
-            background: #ccc;
-            border: 2px solid #999;
+            gap: 4px;
+            background: #f0ece4;
+            border: 1px solid var(--panel-border);
             margin-top: 10px;
             width: fit-content;
+            border-radius: 12px;
+            padding: 6px;
         }
+
         .grid-cell {
             width: 25px;
             height: 25px;
             background: white;
             cursor: pointer;
+            border-radius: 6px;
+            border: 1px solid var(--panel-border);
         }
-        .grid-cell.active { background: #4caf50; }
 
-        #canvas-container { flex-grow: 1; position: relative; background: #e0e0e0; }
-        #tooltip { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.6); color: white; padding: 5px 10px; border-radius: 4px; pointer-events: none; }
+        .grid-cell.active {
+            background: var(--success);
+            border-color: #2f6a4b;
+        }
+
+        #canvas-container { flex-grow: 1; position: relative; background: #ece7dd; }
+
+        #tooltip {
+            position: absolute;
+            top: 14px;
+            left: 14px;
+            background: #ffffff;
+            color: var(--text);
+            padding: 8px 12px;
+            border-radius: 10px;
+            font-size: 12px;
+            letter-spacing: 0.2px;
+            pointer-events: none;
+            border: 1px solid var(--panel-border);
+        }
+
+        .price-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: #f5f1e8;
+            border: 1px solid var(--panel-border);
+            font-size: 13px;
+            margin-top: 8px;
+        }
+
+        .price-row strong {
+            font-size: 15px;
+            color: var(--text);
+        }
+
+        .price-total {
+            background: #fff5e1;
+            border-color: #e8d8b2;
+        }
     </style>
 </head>
 <body>
@@ -86,7 +234,7 @@
             </div>
             <button class="secondary" onclick="resetGrid()">รีเซ็ตตาราง</button>
             
-            <p style="font-size: 12px; color: #666;">*คลิกที่ช่องตารางด้านล่างเพื่อ สร้าง/ลบ พื้น (ทำตัว L ได้)</p>
+            <p class="section-note">*คลิกที่ช่องตารางด้านล่างเพื่อ สร้าง/ลบ พื้น (ทำตัว L ได้)</p>
             <div id="grid-wrapper" style="overflow-x: auto;">
                 <div id="grid-editor"></div>
             </div>
@@ -97,28 +245,53 @@
             <label>ความสูงกำแพง: <span id="wallHeightVal">2.5</span>m</label>
             <input type="range" id="wallHeightInfo" min="1" max="5" step="0.1" value="2.5" oninput="updateWallHeight(this.value)">
             
-            <label>ลายกำแพง</label>
-            <select id="wallTextureSelect" onchange="updateWallTexture()" style="width: 100%; padding: 5px;"></select>
+            <label>เลือกพื้นผิวกำแพง</label>
+            <div id="wallSwatches" class="swatch-grid"></div>
+            <select id="wallTextureSelect" class="hidden-select" onchange="updateWallTexture()"></select>
 
             <div class="toggle-row" style="margin-top: 10px;">
                 <label style="margin: 0;">โหมดลบกำแพง</label>
                 <input type="checkbox" id="wallDeleteToggle" onchange="toggleWallDeleteMode(this.checked)">
             </div>
-            <p style="font-size: 12px; color: #666; margin-top: 6px;">*เปิดโหมดนี้แล้วคลิกกำแพงเพื่อ ลบ/คืนกำแพง</p>
+            <p class="section-note">*เปิดโหมดนี้แล้วคลิกกำแพงเพื่อ ลบ/คืนกำแพง</p>
         </div>
 
         <div class="control-group">
             <h3>3. จัดการกระเบื้อง</h3>
-            <p style="font-size: 12px; color: #666;">*คลิกที่กระเบื้องใน 3D เพื่อหมุนทีละแผ่น</p>
+            <p class="section-note">*คลิกที่กระเบื้องใน 3D เพื่อหมุนทีละแผ่น</p>
             <button onclick="rotateAllTiles()">หมุนทั้งหมด (+90°)</button>
 
             <label style="margin-top: 10px;">เลือก Mock Up ลายกระเบื้อง</label>
             <div id="tileSwatches" class="swatch-grid"></div>
         </div>
+
+        <div class="control-group">
+            <h3>4. หน้าต่างและประตู</h3>
+            <p class="section-note">*เลือกชนิดแล้วคลิกหรือลากบนกำแพงเพื่อวาง/ย้าย | คลิกขวาที่ชิ้นงานเพื่อลบ</p>
+            <div id="fixtureSwatches" class="swatch-grid"></div>
+        </div>
+
+        <div class="control-group">
+            <h3>5. คำนวณราคา</h3>
+            <label>ราคาต่อแผ่น (บาท)</label>
+            <input type="number" id="tilePriceInput" value="120" min="1" oninput="updatePriceSummary()">
+            <div class="price-row">
+                <span>จำนวนแผ่นที่ใช้</span>
+                <strong id="tileCountVal">0</strong>
+            </div>
+            <div class="price-row">
+                <span>ราคา/แผ่น</span>
+                <strong id="tileUnitPriceVal">0</strong>
+            </div>
+            <div class="price-row price-total">
+                <span>ราคารวม</span>
+                <strong id="tileTotalPriceVal">0</strong>
+            </div>
+        </div>
     </div>
 
     <div id="canvas-container">
-        <div id="tooltip">คลิกซ้าย: หมุนกระเบื้อง | โหมดลบกำแพง: คลิกกำแพงเพื่อ ลบ/คืน | คลิกขวา: หมุนกล้อง</div>
+        <div id="tooltip">คลิกซ้าย: หมุนกระเบื้อง | โหมดลบกำแพง: คลิกกำแพงเพื่อ ลบ/คืน | เลือกหน้าต่าง/ประตูแล้วลากเพื่อวาง | คลิกขวาที่หน้าต่าง/ประตูเพื่อลบ | คลิกขวา: หมุนกล้อง</div>
     </div>
 
     <script type="importmap">
@@ -143,7 +316,13 @@
         let gridData = []; 
         let rotationData = [];
         let tilePattern = 'quarter';
+        let wallPattern = 'paint';
+        let placementMode = null;
+        let tilePrice = 120;
         let wallDeleteMode = false;
+        let ignoreNextClick = false;
+        let isDraggingFixture = false;
+        let draggingFixture = null;
         const removedWalls = new Set();
 
         // --- 2. Procedural Texture Generator (สร้างลายกระเบื้อง) ---
@@ -325,6 +504,77 @@
             return canvas;
         }
 
+        function createWindowTextureCanvas() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            const gradient = ctx.createLinearGradient(0, 0, 512, 512);
+            gradient.addColorStop(0, '#c7e3ff');
+            gradient.addColorStop(1, '#8abfff');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 512, 512);
+
+            ctx.strokeStyle = '#cbd5e1';
+            ctx.lineWidth = 20;
+            ctx.strokeRect(24, 24, 464, 464);
+
+            ctx.fillStyle = '#f8fafc';
+            ctx.fillRect(36, 36, 440, 440);
+
+            ctx.fillStyle = gradient;
+            ctx.fillRect(60, 60, 392, 392);
+
+            ctx.fillStyle = '#e2e8f0';
+            ctx.fillRect(246, 60, 20, 392);
+            ctx.fillRect(60, 246, 392, 20);
+
+            ctx.fillStyle = 'rgba(255,255,255,0.35)';
+            ctx.fillRect(90, 90, 120, 80);
+            return canvas;
+        }
+
+        function createDoorTextureCanvas() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 1024;
+            const ctx = canvas.getContext('2d');
+
+            const gradient = ctx.createLinearGradient(0, 0, 0, 1024);
+            gradient.addColorStop(0, '#c28b6a');
+            gradient.addColorStop(1, '#9a6a4a');
+
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 512, 1024);
+
+            ctx.strokeStyle = '#7c4a2d';
+            ctx.lineWidth = 18;
+            ctx.strokeRect(28, 24, 456, 976);
+
+            ctx.fillStyle = '#d2a07b';
+            ctx.fillRect(90, 140, 332, 240);
+            ctx.fillStyle = '#b98561';
+            ctx.fillRect(90, 430, 332, 520);
+
+            ctx.strokeStyle = '#b88763';
+            ctx.lineWidth = 10;
+            ctx.strokeRect(90, 140, 332, 240);
+            ctx.strokeRect(90, 430, 332, 520);
+
+            ctx.fillStyle = '#facc15';
+            ctx.beginPath();
+            ctx.arc(410, 560, 18, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#a16207';
+            ctx.lineWidth = 6;
+            ctx.stroke();
+
+            ctx.fillStyle = 'rgba(255,255,255,0.35)';
+            ctx.fillRect(120, 210, 80, 18);
+            return canvas;
+        }
+
         // --- 3. Three.js Setup ---
         const container = document.getElementById('canvas-container');
         const scene = new THREE.Scene();
@@ -357,6 +607,11 @@
             terrazzo: createTerrazzoTexture()
         };
 
+        const fixtureTextureCanvases = {
+            window: createWindowTextureCanvas(),
+            door: createDoorTextureCanvas()
+        };
+
         const tilePatternList = [
             { key: 'quarter', label: 'ลายโค้ง', type: 'canvas' },
             { key: 'checker', label: 'ตารางสลับ', type: 'canvas' },
@@ -377,12 +632,48 @@
             { key: 'wallreal2', label: 'ภาพจริง 2', type: 'image', url: './wall-2.jpeg', repeatX: 2, repeatYPerMeter: 1 }
         ];
 
+        const fixtureCatalog = [
+            {
+                key: 'window',
+                label: 'หน้าต่าง',
+                type: 'window',
+                width: 0.9,
+                height: 0.8,
+                depth: 0.08,
+                preview: {
+                    base: '#93c5fd',
+                    accent: '#e2e8f0'
+                }
+            },
+            {
+                key: 'door',
+                label: 'ประตู',
+                type: 'door',
+                width: 0.95,
+                height: 2.0,
+                depth: 0.1,
+                preview: {
+                    base: '#b08968',
+                    accent: '#fef9c3'
+                }
+            }
+        ];
+
         const tileTextures = {};
         Object.keys(tileTextureCanvases).forEach((key) => {
             const tex = new THREE.CanvasTexture(tileTextureCanvases[key]);
             tex.colorSpace = THREE.SRGBColorSpace;
             tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
             tileTextures[key] = tex;
+        });
+
+        const fixtureTextures = {};
+        Object.keys(fixtureTextureCanvases).forEach((key) => {
+            const tex = new THREE.CanvasTexture(fixtureTextureCanvases[key]);
+            tex.colorSpace = THREE.SRGBColorSpace;
+            tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+            tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy?.() ?? 4);
+            fixtureTextures[key] = tex;
         });
 
         function resolveAssetUrl(url) {
@@ -453,11 +744,14 @@
             return acc;
         }, {});
         const tileGeometry = new THREE.PlaneGeometry(1, 1);
-        const wallGeometry = new THREE.BoxGeometry(1, 1, 0.1); // กว้าง 1, สูง 1, หนา 0.1
+        const wallThickness = 0.1;
+        const wallGeometry = new THREE.BoxGeometry(1, 1, wallThickness); // กว้าง 1, สูง 1, หนา 0.1
 
         // Group รวม object ทั้งหมดเพื่อให้ลบง่ายเวลา render ใหม่
         let roomGroup = new THREE.Group();
         scene.add(roomGroup);
+        const fixturesGroup = new THREE.Group();
+        scene.add(fixturesGroup);
 
         // Raycaster สำหรับคลิกเลือกกระเบื้อง
         const raycaster = new THREE.Raycaster();
@@ -472,6 +766,10 @@
             gridData = [];
             rotationData = [];
             removedWalls.clear();
+            placementMode = null;
+            while (fixturesGroup.children.length > 0) {
+                fixturesGroup.remove(fixturesGroup.children[0]);
+            }
 
             // สร้าง Array 2 มิติ
             for(let x=0; x<gridWidth; x++) {
@@ -484,6 +782,8 @@
             }
             renderUI();
             build3D();
+            renderFixtureSwatches();
+            updatePriceSummary();
         }
 
         // สร้างตาราง UI (Grid Editor)
@@ -512,6 +812,9 @@
             swatchContainer.innerHTML = '';
 
             tilePatternList.forEach(({ key, label, type, url }) => {
+                const item = document.createElement('div');
+                item.className = 'swatch-item';
+
                 const swatch = document.createElement('div');
                 swatch.className = `tile-swatch ${tilePattern === key ? 'active' : ''}`;
                 swatch.title = label;
@@ -520,14 +823,21 @@
                 } else if (type === 'image') {
                     swatch.style.backgroundImage = `url(${resolveAssetUrl(url)})`;
                 }
-                swatch.onclick = () => setTilePattern(key);
-                swatchContainer.appendChild(swatch);
+
+                const caption = document.createElement('div');
+                caption.className = 'swatch-caption';
+                caption.textContent = label;
+
+                item.appendChild(swatch);
+                item.appendChild(caption);
+                item.onclick = () => setTilePattern(key);
+                swatchContainer.appendChild(item);
             });
         }
 
         function renderWallTextureOptions() {
             const select = document.getElementById('wallTextureSelect');
-            const currentValue = select.value || 'paint';
+            const currentValue = select.value || wallPattern || 'paint';
             select.innerHTML = '';
 
             wallTextureList.forEach(({ key, label }) => {
@@ -538,7 +848,254 @@
             });
 
             select.value = wallTextureList.some(item => item.key === currentValue) ? currentValue : 'paint';
+            wallPattern = select.value;
         }
+
+        function renderWallSwatches() {
+            const swatchContainer = document.getElementById('wallSwatches');
+            if (!swatchContainer) return;
+            swatchContainer.innerHTML = '';
+
+            wallTextureList.forEach(({ key, label, type, canvas, url, color }) => {
+                const item = document.createElement('div');
+                item.className = 'swatch-item';
+
+                const swatch = document.createElement('div');
+                swatch.className = `tile-swatch ${wallPattern === key ? 'active' : ''}`;
+                swatch.title = label;
+
+                if (type === 'canvas' && canvas) {
+                    swatch.style.backgroundImage = `url(${canvas.toDataURL()})`;
+                } else if (type === 'image' && url) {
+                    swatch.style.backgroundImage = `url(${resolveAssetUrl(url)})`;
+                } else if (type === 'solid') {
+                    const hex = `#${color.toString(16).padStart(6, '0')}`;
+                    swatch.style.backgroundColor = hex;
+                }
+
+                const caption = document.createElement('div');
+                caption.className = 'swatch-caption';
+                caption.textContent = label;
+
+                item.appendChild(swatch);
+                item.appendChild(caption);
+                item.onclick = () => setWallTexture(key);
+                swatchContainer.appendChild(item);
+            });
+        }
+
+        function renderFixtureSwatches() {
+            const swatchContainer = document.getElementById('fixtureSwatches');
+            if (!swatchContainer) return;
+            swatchContainer.innerHTML = '';
+
+            fixtureCatalog.forEach(({ key, label, preview }) => {
+                const item = document.createElement('div');
+                item.className = 'swatch-item';
+
+                const swatch = document.createElement('div');
+                swatch.className = `tile-swatch ${placementMode === key ? 'active' : ''}`;
+                swatch.title = label;
+                if (fixtureTextureCanvases[key]) {
+                    swatch.style.backgroundImage = `url(${fixtureTextureCanvases[key].toDataURL()})`;
+                } else {
+                    swatch.style.background = `linear-gradient(135deg, ${preview.base} 0%, ${preview.accent} 100%)`;
+                }
+
+                const caption = document.createElement('div');
+                caption.className = 'swatch-caption';
+                caption.textContent = label;
+
+                item.appendChild(swatch);
+                item.appendChild(caption);
+                item.onclick = () => setPlacementMode(key);
+                swatchContainer.appendChild(item);
+            });
+        }
+
+        function setPlacementMode(mode) {
+            placementMode = placementMode === mode ? null : mode;
+            if (placementMode && wallDeleteMode) {
+                wallDeleteMode = false;
+                const toggle = document.getElementById('wallDeleteToggle');
+                if (toggle) toggle.checked = false;
+            }
+            renderFixtureSwatches();
+        }
+
+        function createFixtureMesh(type) {
+            const config = fixtureCatalog.find(item => item.key === type);
+            if (!config) return null;
+
+            const group = new THREE.Group();
+            const { width, height, depth } = config;
+            const slabDepth = Math.min(depth, wallThickness);
+            const texture = fixtureTextures[type];
+
+            if (type === 'window') {
+                const frameDepth = Math.max(0.04, slabDepth * 0.6);
+                const frameMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.75 });
+                const frame = new THREE.Mesh(new THREE.BoxGeometry(width + 0.08, height + 0.08, frameDepth), frameMat);
+                group.add(frame);
+
+                const glassMat = new THREE.MeshStandardMaterial({
+                    color: 0x9ec9ff,
+                    roughness: 0.1,
+                    metalness: 0.0,
+                    transparent: true,
+                    opacity: 0.55
+                });
+                const glass = new THREE.Mesh(new THREE.BoxGeometry(width - 0.12, height - 0.12, frameDepth * 0.35), glassMat);
+                group.add(glass);
+
+                const mullionMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.8 });
+                const mullionV = new THREE.Mesh(new THREE.BoxGeometry(0.04, height - 0.16, frameDepth * 0.5), mullionMat);
+                const mullionH = new THREE.Mesh(new THREE.BoxGeometry(width - 0.16, 0.04, frameDepth * 0.5), mullionMat);
+                group.add(mullionV, mullionH);
+            } else {
+                const doorMat = new THREE.MeshStandardMaterial({ color: 0xb98561, roughness: 0.7 });
+                const panelMat = new THREE.MeshStandardMaterial({ color: 0x9d6b4b, roughness: 0.8 });
+                const slab = new THREE.Mesh(new THREE.BoxGeometry(width, height, slabDepth), doorMat);
+                group.add(slab);
+
+                const panelDepth = Math.max(0.012, slabDepth * 0.25);
+                const panelTop = new THREE.Mesh(new THREE.BoxGeometry(width * 0.7, height * 0.25, panelDepth), panelMat);
+                const panelBottom = new THREE.Mesh(new THREE.BoxGeometry(width * 0.7, height * 0.4, panelDepth), panelMat);
+                panelTop.position.y = height * 0.18;
+                panelBottom.position.y = -height * 0.18;
+                panelTop.position.z = slabDepth / 2 + panelDepth / 2 + 0.002;
+                panelBottom.position.z = slabDepth / 2 + panelDepth / 2 + 0.002;
+                group.add(panelTop, panelBottom);
+
+                const panelTopBack = panelTop.clone();
+                const panelBottomBack = panelBottom.clone();
+                panelTopBack.position.z = -panelTop.position.z;
+                panelBottomBack.position.z = -panelBottom.position.z;
+                group.add(panelTopBack, panelBottomBack);
+
+                const knobMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.4, metalness: 0.3 });
+                const knob = new THREE.Mesh(new THREE.SphereGeometry(0.045, 18, 18), knobMat);
+                knob.position.set(width * 0.32, -height * 0.05, slabDepth / 2 + 0.03);
+                const knobBack = knob.clone();
+                knobBack.position.z = -knob.position.z;
+                group.add(knob, knobBack);
+            }
+
+            if (texture) {
+                const planeGeometry = new THREE.PlaneGeometry(width, height);
+                const planeOffset = (wallThickness / 2) + 0.006;
+                const textureMat = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide });
+
+                const frontPlane = new THREE.Mesh(planeGeometry, textureMat);
+                frontPlane.position.z = planeOffset;
+                group.add(frontPlane);
+
+                const backPlane = new THREE.Mesh(planeGeometry, textureMat);
+                backPlane.position.z = -planeOffset;
+                backPlane.rotation.y = Math.PI;
+                group.add(backPlane);
+            }
+
+            group.userData = {
+                isFixture: true,
+                type,
+                width,
+                height,
+                depth
+            };
+            return group;
+        }
+
+        function positionFixtureOnWall(fixture, wallHit) {
+            if (!fixture || !wallHit) return;
+            const { side, x, y } = wallHit.object.userData;
+            const dims = fixture.userData;
+            const point = wallHit.point.clone();
+
+            const offsetX = (gridWidth * 1) / 2 - 0.5;
+            const offsetZ = (gridHeight * 1) / 2 - 0.5;
+            const baseX = x - offsetX;
+            const baseZ = y - offsetZ;
+
+            let wallCenterX = baseX;
+            let wallCenterZ = baseZ;
+            if (side === 'left') wallCenterX -= 0.5;
+            if (side === 'right') wallCenterX += 0.5;
+            if (side === 'top') wallCenterZ -= 0.5;
+            if (side === 'bottom') wallCenterZ += 0.5;
+
+            const minY = dims.height / 2;
+            const maxY = Math.max(minY, wallHeight - dims.height / 2);
+            const clampedY = Math.min(Math.max(point.y, minY), maxY);
+
+            if (side === 'left') {
+                fixture.rotation.y = Math.PI / 2;
+                fixture.position.set(wallCenterX, clampedY, point.z);
+            } else if (side === 'right') {
+                fixture.rotation.y = Math.PI / 2;
+                fixture.position.set(wallCenterX, clampedY, point.z);
+            } else if (side === 'top') {
+                fixture.rotation.y = 0;
+                fixture.position.set(point.x, clampedY, wallCenterZ);
+            } else if (side === 'bottom') {
+                fixture.rotation.y = 0;
+                fixture.position.set(point.x, clampedY, wallCenterZ);
+            }
+
+            fixture.userData.attachedWallKey = `${x},${y},${side}`;
+        }
+
+        function placeFixtureOnWall(wallHit, type) {
+            const fixture = createFixtureMesh(type);
+            if (!fixture) return null;
+            positionFixtureOnWall(fixture, wallHit);
+            fixturesGroup.add(fixture);
+            return fixture;
+        }
+
+        function clampFixturesToWallHeight() {
+            fixturesGroup.children.forEach((fixture) => {
+                const dims = fixture.userData;
+                if (!dims?.height) return;
+                const minY = dims.height / 2;
+                const maxY = Math.max(minY, wallHeight - dims.height / 2);
+                fixture.position.y = Math.min(Math.max(fixture.position.y, minY), maxY);
+            });
+        }
+
+        function countActiveTiles() {
+            let count = 0;
+            for (let x = 0; x < gridWidth; x++) {
+                for (let y = 0; y < gridHeight; y++) {
+                    if (gridData[x][y]) count += 1;
+                }
+            }
+            return count;
+        }
+
+        function formatCurrency(value) {
+            const formatter = new Intl.NumberFormat('th-TH', {
+                maximumFractionDigits: 0
+            });
+            return formatter.format(value);
+        }
+
+        function updatePriceSummary() {
+            const input = document.getElementById('tilePriceInput');
+            const tileCountEl = document.getElementById('tileCountVal');
+            const unitPriceEl = document.getElementById('tileUnitPriceVal');
+            const totalPriceEl = document.getElementById('tileTotalPriceVal');
+
+            tilePrice = parseFloat(input?.value ?? tilePrice) || 0;
+            const tileCount = countActiveTiles();
+            const total = tileCount * tilePrice;
+
+            if (tileCountEl) tileCountEl.textContent = tileCount.toString();
+            if (unitPriceEl) unitPriceEl.textContent = formatCurrency(tilePrice);
+            if (totalPriceEl) totalPriceEl.textContent = formatCurrency(total);
+        }
+
+        window.updatePriceSummary = updatePriceSummary;
 
         // ฟังชันก์หลัก: สร้างห้อง 3D ตามข้อมูล Grid
         function build3D() {
@@ -567,7 +1124,7 @@
 
                     // 2. สร้างกำแพง (Wall Generation Algorithm)
                     // เช็ค 4 ทิศ (บน, ล่าง, ซ้าย, ขวา) ถ้าทิศไหนไม่มีเพื่อนบ้าน ให้สร้างกำแพง
-                    const currentMat = wallMaterials[document.getElementById('wallTextureSelect').value];
+                    const currentMat = wallMaterials[wallPattern];
                     if (currentMat?.map && currentMat.userData?.repeatYPerMeter) {
                         const repeatX = currentMat.userData.repeatX ?? 1;
                         const repeatY = currentMat.userData.repeatYPerMeter * wallHeight;
@@ -593,6 +1150,8 @@
                     }
                 }
             }
+
+            updatePriceSummary();
         }
 
         function createWall(x, z, side, material, gridX, gridY) {
@@ -631,20 +1190,40 @@
         window.updateWallHeight = function(val) {
             wallHeight = val;
             document.getElementById('wallHeightVal').innerText = val;
+            clampFixturesToWallHeight();
             build3D();
         }
 
         window.updateWallTexture = function() {
+            const select = document.getElementById('wallTextureSelect');
+            if (select) {
+                wallPattern = select.value;
+            }
+            renderWallSwatches();
             build3D();
         }
 
         window.toggleWallDeleteMode = function(enabled) {
             wallDeleteMode = enabled;
+            if (wallDeleteMode && placementMode) {
+                placementMode = null;
+                renderFixtureSwatches();
+            }
         }
 
         function setTilePattern(patternKey) {
             tilePattern = patternKey;
             renderTileSwatches();
+            build3D();
+        }
+
+        function setWallTexture(patternKey) {
+            wallPattern = patternKey;
+            const select = document.getElementById('wallTextureSelect');
+            if (select) {
+                select.value = patternKey;
+            }
+            renderWallSwatches();
             build3D();
         }
 
@@ -659,8 +1238,92 @@
 
         // Event Listener สำหรับคลิกที่กระเบื้องใน 3D
         renderer.domElement.addEventListener('click', onCanvasClick, false);
+        renderer.domElement.addEventListener('pointerdown', onPointerDown, false);
+        renderer.domElement.addEventListener('pointermove', onPointerMove, false);
+        renderer.domElement.addEventListener('pointerup', onPointerUp, false);
+        renderer.domElement.addEventListener('contextmenu', onContextMenu, false);
+
+        function onPointerDown(event) {
+            if (event.button !== 0) return;
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const fixtureHits = raycaster.intersectObjects(fixturesGroup.children, true);
+
+            if (fixtureHits.length > 0) {
+                const fixtureHit = fixtureHits.find(hit => hit.object.parent?.userData?.isFixture || hit.object.userData?.isFixture);
+                if (fixtureHit) {
+                    draggingFixture = fixtureHit.object.userData?.isFixture ? fixtureHit.object : fixtureHit.object.parent;
+                    isDraggingFixture = true;
+                    ignoreNextClick = true;
+                    controls.enabled = false;
+                    return;
+                }
+            }
+
+            if (placementMode && !wallDeleteMode) {
+                const wallHits = raycaster.intersectObjects(roomGroup.children, true);
+                const wallHit = wallHits.find(hit => hit.object.userData.isWall);
+                if (wallHit) {
+                    const placed = placeFixtureOnWall(wallHit, placementMode);
+                    if (placed) {
+                        draggingFixture = placed;
+                        isDraggingFixture = true;
+                        controls.enabled = false;
+                        placementMode = null;
+                        renderFixtureSwatches();
+                    }
+                    ignoreNextClick = true;
+                    return;
+                }
+            }
+        }
+
+        function onPointerMove(event) {
+            if (!isDraggingFixture || !draggingFixture || (event.buttons & 1) === 0) return;
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+
+            const wallHits = raycaster.intersectObjects(roomGroup.children, true);
+            const wallHit = wallHits.find(hit => hit.object.userData.isWall);
+            if (wallHit) {
+                positionFixtureOnWall(draggingFixture, wallHit);
+            }
+        }
+
+        function onPointerUp() {
+            if (isDraggingFixture) {
+                isDraggingFixture = false;
+                draggingFixture = null;
+                controls.enabled = true;
+            }
+        }
+
+        function onContextMenu(event) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const fixtureHits = raycaster.intersectObjects(fixturesGroup.children, true);
+            const fixtureHit = fixtureHits.find(hit => hit.object.parent?.userData?.isFixture || hit.object.userData?.isFixture);
+            if (fixtureHit) {
+                event.preventDefault();
+                const target = fixtureHit.object.userData?.isFixture ? fixtureHit.object : fixtureHit.object.parent;
+                fixturesGroup.remove(target);
+                ignoreNextClick = true;
+            }
+        }
 
         function onCanvasClick(event) {
+            if (ignoreNextClick) {
+                ignoreNextClick = false;
+                return;
+            }
             // คำนวณตำแหน่งเมาส์
             const rect = renderer.domElement.getBoundingClientRect();
             mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -696,6 +1359,7 @@
 
         // Init
         renderWallTextureOptions();
+        renderWallSwatches();
         renderTileSwatches();
         resetGrid();
 
