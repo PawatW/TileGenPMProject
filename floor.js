@@ -33,6 +33,16 @@ let ignoreNextClick = false;
 let isDraggingFixture = false;
 let draggingFixture = null;
 const removedWalls = new Set();
+const HISTORY_LIMIT = 120;
+const historyStack = [];
+let historyIndex = -1;
+let suppressHistoryRecording = false;
+let dragMutatedState = false;
+
+const draftToolbar = document.getElementById('draft-toolbar');
+const undoBtn = document.getElementById('undoBtn');
+const redoBtn = document.getElementById('redoBtn');
+const topBarToggleBtn = document.getElementById('topBarToggleBtn');
 
 // --- Draft State Helpers ---
 
@@ -168,6 +178,85 @@ function applyDesignState(state) {
     }
     clampFixturesToWallHeight();
     updatePriceSummary();
+}
+
+function updateHistoryButtons() {
+    if (undoBtn) undoBtn.disabled = historyIndex <= 0;
+    if (redoBtn) redoBtn.disabled = historyIndex >= historyStack.length - 1;
+}
+
+function setTopBarCollapsed(collapsed) {
+    if (!draftToolbar || !topBarToggleBtn) return;
+    draftToolbar.classList.toggle('is-collapsed', collapsed);
+    topBarToggleBtn.textContent = collapsed ? 'แสดงแถบ' : 'ซ่อนแถบ';
+    topBarToggleBtn.title = collapsed ? 'แสดงแถบด้านบน' : 'ซ่อนแถบด้านบน';
+}
+
+function recordHistorySnapshot({ force = false } = {}) {
+    if (suppressHistoryRecording) return;
+    const snapshot = JSON.stringify(serializeDesignState());
+
+    if (!force && historyIndex >= 0 && historyStack[historyIndex] === snapshot) {
+        return;
+    }
+
+    if (historyIndex < historyStack.length - 1) {
+        historyStack.splice(historyIndex + 1);
+    }
+
+    historyStack.push(snapshot);
+    if (historyStack.length > HISTORY_LIMIT) {
+        historyStack.shift();
+    }
+
+    historyIndex = historyStack.length - 1;
+    updateHistoryButtons();
+}
+
+function restoreHistorySnapshot(index) {
+    if (index < 0 || index >= historyStack.length) return;
+    const state = JSON.parse(historyStack[index]);
+    suppressHistoryRecording = true;
+    try {
+        applyDesignState(state);
+    } finally {
+        suppressHistoryRecording = false;
+    }
+    historyIndex = index;
+    updateHistoryButtons();
+}
+
+function undoDesignAction() {
+    if (historyIndex <= 0) return;
+    restoreHistorySnapshot(historyIndex - 1);
+}
+
+function redoDesignAction() {
+    if (historyIndex >= historyStack.length - 1) return;
+    restoreHistorySnapshot(historyIndex + 1);
+}
+
+function isTypingTarget(target) {
+    if (!target) return false;
+    const tag = target.tagName?.toLowerCase();
+    return tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable;
+}
+
+function onUndoRedoHotkey(event) {
+    if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+    if (isTypingTarget(event.target)) return;
+
+    const key = event.key.toLowerCase();
+    if (key === 'z' && !event.shiftKey) {
+        event.preventDefault();
+        undoDesignAction();
+        return;
+    }
+
+    if ((key === 'z' && event.shiftKey) || key === 'y') {
+        event.preventDefault();
+        redoDesignAction();
+    }
 }
 
 // --- 2. Three.js Setup ---
@@ -341,6 +430,7 @@ window.resetGrid = function() {
     build3D();
     renderFixtureSwatches();
     updatePriceSummary();
+    recordHistorySnapshot();
 }
 
 // สร้างตาราง UI (Grid Editor)
@@ -358,6 +448,7 @@ function renderUI() {
                 gridData[x][y] = gridData[x][y] ? 0 : 1; // Toggle 0/1
                 renderUI();
                 build3D(); // สร้าง 3D ใหม่ทันที
+                recordHistorySnapshot();
             };
             editor.appendChild(cell);
         }
@@ -758,6 +849,7 @@ window.updateWallTexture = function() {
     }
     renderWallSwatches();
     build3D();
+    recordHistorySnapshot();
 }
 
 window.toggleWallDeleteMode = function(enabled) {
@@ -772,6 +864,7 @@ function setTilePattern(patternKey) {
     tilePattern = patternKey;
     renderTileSwatches();
     build3D();
+    recordHistorySnapshot();
 }
 
 function setWallTexture(patternKey) {
@@ -782,6 +875,7 @@ function setWallTexture(patternKey) {
     }
     renderWallSwatches();
     build3D();
+    recordHistorySnapshot();
 }
 
 window.rotateAllTiles = function() {
@@ -791,6 +885,7 @@ window.rotateAllTiles = function() {
         }
     }
     build3D();
+    recordHistorySnapshot();
 }
 
 // Event Listener สำหรับคลิกที่กระเบื้องใน 3D
@@ -814,6 +909,7 @@ function onPointerDown(event) {
         if (fixtureHit) {
             draggingFixture = fixtureHit.object.userData?.isFixture ? fixtureHit.object : fixtureHit.object.parent;
             isDraggingFixture = true;
+            dragMutatedState = false;
             ignoreNextClick = true;
             controls.enabled = false;
             return;
@@ -828,6 +924,7 @@ function onPointerDown(event) {
             if (placed) {
                 draggingFixture = placed;
                 isDraggingFixture = true;
+                dragMutatedState = true;
                 controls.enabled = false;
                 placementMode = null;
                 renderFixtureSwatches();
@@ -849,13 +946,18 @@ function onPointerMove(event) {
     const wallHit = wallHits.find(hit => hit.object.userData.isWall);
     if (wallHit) {
         positionFixtureOnWall(draggingFixture, wallHit);
+        dragMutatedState = true;
     }
 }
 
 function onPointerUp() {
     if (isDraggingFixture) {
+        if (dragMutatedState) {
+            recordHistorySnapshot();
+        }
         isDraggingFixture = false;
         draggingFixture = null;
+        dragMutatedState = false;
         controls.enabled = true;
     }
 }
@@ -873,6 +975,7 @@ function onContextMenu(event) {
         const target = fixtureHit.object.userData?.isFixture ? fixtureHit.object : fixtureHit.object.parent;
         fixturesGroup.remove(target);
         ignoreNextClick = true;
+        recordHistorySnapshot();
     }
 }
 
@@ -901,6 +1004,7 @@ function onCanvasClick(event) {
                     removedWalls.add(wallKey);
                 }
                 build3D();
+                recordHistorySnapshot();
             }
             return;
         }
@@ -910,16 +1014,52 @@ function onCanvasClick(event) {
             const { x, y } = tileHit.object.userData;
             rotationData[x][y] = (rotationData[x][y] + 1) % 4;
             build3D();
+            recordHistorySnapshot();
         }
     }
 }
 
 // Init
+if (undoBtn) undoBtn.addEventListener('click', undoDesignAction);
+if (redoBtn) redoBtn.addEventListener('click', redoDesignAction);
+if (topBarToggleBtn) {
+    topBarToggleBtn.addEventListener('click', () => {
+        const collapsed = draftToolbar?.classList.contains('is-collapsed');
+        setTopBarCollapsed(!collapsed);
+    });
+}
+
+document.addEventListener('keydown', onUndoRedoHotkey);
+
+const wallHeightInput = document.getElementById('wallHeightInfo');
+if (wallHeightInput) {
+    wallHeightInput.addEventListener('change', () => {
+        recordHistorySnapshot();
+    });
+}
+
+const tilePriceInput = document.getElementById('tilePriceInput');
+if (tilePriceInput) {
+    tilePriceInput.addEventListener('change', () => {
+        updatePriceSummary();
+        recordHistorySnapshot();
+    });
+}
+
+setTopBarCollapsed(false);
+updateHistoryButtons();
+
 renderWallTextureOptions();
 renderWallSwatches();
 renderTileSwatches();
 window.resetGrid();
-initDraftSlotsUI({ serializeDesignState, applyDesignState });
+initDraftSlotsUI({
+    serializeDesignState,
+    applyDesignState,
+    onStateLoaded: () => {
+        recordHistorySnapshot();
+    }
+});
 
 // Quotation Export
 renderer._scene = scene;

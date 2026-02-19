@@ -564,6 +564,15 @@ input[type="range"]::-webkit-slider-thumb:hover {
     box-shadow: 0 4px 24px rgba(0,0,0,0.08);
 }
 
+#draft-toolbar.is-collapsed {
+    padding: 6px 8px;
+    gap: 0;
+}
+
+#draft-toolbar.is-collapsed > :not(#topBarToggleBtn) {
+    display: none;
+}
+
 .draft-slot-group {
     display: flex;
     align-items: center;
@@ -637,11 +646,30 @@ input[type="range"]::-webkit-slider-thumb:hover {
     margin: 0;
 }
 
+#topBarToggleBtn {
+    margin-left: 4px;
+}
+
+#draft-toolbar.is-collapsed #topBarToggleBtn {
+    margin-left: 0;
+}
+
 .draft-btn:hover {
     background: var(--surface-2);
     color: var(--text);
     border-color: var(--border-strong);
     transform: none;
+}
+
+.draft-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.draft-btn:disabled:hover {
+    background: var(--surface-3);
+    color: var(--text-sec);
+    border-color: var(--border);
 }
 
 .draft-btn.primary {

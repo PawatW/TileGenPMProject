@@ -26,7 +26,7 @@ function writeDraftStore(store) {
     window.localStorage?.setItem(DRAFT_STORAGE_KEY, JSON.stringify(store));
 }
 
-export function initDraftSlotsUI({ serializeDesignState, applyDesignState } = {}) {
+export function initDraftSlotsUI({ serializeDesignState, applyDesignState, onStateLoaded } = {}) {
     if (typeof serializeDesignState !== 'function' || typeof applyDesignState !== 'function') return;
 
     const slotSelect = document.getElementById('draftSlotSelect');
@@ -90,6 +90,9 @@ export function initDraftSlotsUI({ serializeDesignState, applyDesignState } = {}
             return;
         }
         applyDesignState(slot.state);
+        if (typeof onStateLoaded === 'function') {
+            onStateLoaded(slot.state);
+        }
         nameInput.value = slot?.name ?? '';
         metaNote.textContent = slot?.savedAt
             ? `โหลดแล้ว (บันทึกล่าสุด: ${new Date(slot.savedAt).toLocaleString('th-TH')})`
