@@ -3,96 +3,203 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Tile Layout & Wall Generator</title>
+    <title>Studio PM — Floor Planner</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./floor.css">
 </head>
 <body>
 
-    <div id="sidebar">
-        <h2>ออกแบบแปลนห้อง</h2>
+    <!-- ═══════════════════════════════════════ LEFT PANEL ═══════════════════════════════════════ -->
+    <div id="left-panel">
 
-        <div class="control-group">
-            <h3>1. ขนาดพื้นที่ (ช่อง)</h3>
-            <div style="display: flex; gap: 10px;">
-                <div><label>กว้าง (X)</label><input type="number" id="gridW" value="4" min="2" max="10"></div>
-                <div><label>ลึก (Y)</label><input type="number" id="gridH" value="4" min="2" max="10"></div>
+        <!-- Brand -->
+        <div class="brand">
+            <div class="brand-icon">
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="1" y="1" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="10" y="1" width="7" height="7" rx="1.5" fill="currentColor" opacity=".5"/><rect x="1" y="10" width="7" height="7" rx="1.5" fill="currentColor" opacity=".5"/><rect x="10" y="10" width="7" height="7" rx="1.5" fill="currentColor"/></svg>
             </div>
-            <button class="secondary" onclick="resetGrid()">รีเซ็ตตาราง</button>
+            <div>
+                <div class="brand-name">Studio PM</div>
+                <div class="brand-sub">Floor Planner</div>
+            </div>
+        </div>
 
-            <p class="section-note">*คลิกที่ช่องตารางด้านล่างเพื่อ สร้าง/ลบ พื้น (ทำตัว L ได้)</p>
-            <div id="grid-wrapper" style="overflow-x: auto;">
+        <!-- Section: Room Size -->
+        <div class="panel-section">
+            <div class="section-header">
+                <span class="section-tag">01</span>
+                <h3 class="section-title">ขนาดพื้นที่</h3>
+            </div>
+            <div class="two-col">
+                <div class="field">
+                    <label>กว้าง (X)</label>
+                    <input type="number" id="gridW" value="4" min="2" max="10">
+                </div>
+                <div class="field">
+                    <label>ลึก (Y)</label>
+                    <input type="number" id="gridH" value="4" min="2" max="10">
+                </div>
+            </div>
+            <button class="btn-ghost" onclick="resetGrid()">รีเซ็ตตาราง</button>
+            <p class="hint">คลิกช่องตารางเพื่อสร้าง/ลบพื้น รองรับรูปทรง L</p>
+            <div id="grid-wrapper">
                 <div id="grid-editor"></div>
             </div>
         </div>
 
-        <div class="control-group">
-            <h3>2. ปรับกำแพง</h3>
-            <label>ความสูงกำแพง: <span id="wallHeightVal">2.5</span>m</label>
-            <input type="range" id="wallHeightInfo" min="1" max="5" step="0.1" value="2.5" oninput="updateWallHeight(this.value)">
-
-            <label>เลือกพื้นผิวกำแพง</label>
+        <!-- Section: Wall -->
+        <div class="panel-section">
+            <div class="section-header">
+                <span class="section-tag">02</span>
+                <h3 class="section-title">กำแพง</h3>
+            </div>
+            <div class="slider-field">
+                <div class="slider-label-row">
+                    <label>ความสูงกำแพง</label>
+                    <span class="slider-value"><span id="wallHeightVal">2.5</span> m</span>
+                </div>
+                <input type="range" id="wallHeightInfo" min="1" max="5" step="0.1" value="2.5" oninput="updateWallHeight(this.value)">
+            </div>
+            <label class="field-label">พื้นผิวกำแพง</label>
             <div id="wallSwatches" class="swatch-grid"></div>
             <select id="wallTextureSelect" class="hidden-select" onchange="updateWallTexture()"></select>
-
-            <div class="toggle-row" style="margin-top: 10px;">
-                <label style="margin: 0;">โหมดลบกำแพง</label>
-                <input type="checkbox" id="wallDeleteToggle" onchange="toggleWallDeleteMode(this.checked)">
+            <div class="toggle-row">
+                <span class="toggle-label">โหมดลบกำแพง</span>
+                <label class="switch">
+                    <input type="checkbox" id="wallDeleteToggle" onchange="toggleWallDeleteMode(this.checked)">
+                    <span class="switch-track"></span>
+                </label>
             </div>
-            <p class="section-note">*เปิดโหมดนี้แล้วคลิกกำแพงเพื่อ ลบ/คืนกำแพง</p>
+            <p class="hint">เปิดโหมดแล้วคลิกกำแพงเพื่อ ลบ/คืน</p>
         </div>
 
-        <div class="control-group">
-            <h3>3. จัดการกระเบื้อง</h3>
-            <p class="section-note">*คลิกที่กระเบื้องใน 3D เพื่อหมุนทีละแผ่น</p>
-            <button onclick="rotateAllTiles()">หมุนทั้งหมด (+90°)</button>
-
-            <label style="margin-top: 10px;">เลือก Mock Up ลายกระเบื้อง</label>
+        <!-- Section: Tile -->
+        <div class="panel-section">
+            <div class="section-header">
+                <span class="section-tag">03</span>
+                <h3 class="section-title">กระเบื้อง</h3>
+            </div>
+            <p class="hint">คลิกกระเบื้องใน 3D เพื่อหมุนทีละแผ่น</p>
+            <button class="btn-outline" onclick="rotateAllTiles()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3"/></svg>
+                หมุนทั้งหมด +90°
+            </button>
+            <label class="field-label" style="margin-top:12px;">ลายกระเบื้อง</label>
             <div id="tileSwatches" class="swatch-grid"></div>
         </div>
 
-        <div class="control-group">
-            <h3>4. หน้าต่างและประตู</h3>
-            <p class="section-note">*เลือกชนิดแล้วคลิกหรือลากบนกำแพงเพื่อวาง/ย้าย | คลิกขวาที่ชิ้นงานเพื่อลบ</p>
+        <!-- Section: Fixtures -->
+        <div class="panel-section">
+            <div class="section-header">
+                <span class="section-tag">04</span>
+                <h3 class="section-title">หน้าต่าง & ประตู</h3>
+            </div>
+            <p class="hint">เลือกชนิดแล้วคลิก/ลากบนกำแพง | คลิกขวาที่ชิ้นงานเพื่อลบ</p>
             <div id="fixtureSwatches" class="swatch-grid"></div>
         </div>
 
-        <div class="control-group">
-            <h3>5. คำนวณราคา</h3>
-            <label>ราคาต่อแผ่น (บาท)</label>
-            <input type="number" id="tilePriceInput" value="120" min="1" oninput="updatePriceSummary()">
-            <div class="price-row">
-                <span>จำนวนแผ่นที่ใช้</span>
-                <strong id="tileCountVal">0</strong>
-            </div>
-            <div class="price-row">
-                <span>ราคา/แผ่น</span>
-                <strong id="tileUnitPriceVal">0</strong>
-            </div>
-            <div class="price-row price-total">
-                <span>ราคารวม</span>
-                <strong id="tileTotalPriceVal">0</strong>
-            </div>
-        </div>
-
-        <div class="control-group">
-            <h3>6. Save / Load Slot</h3>
-            <p class="section-note">*บันทึกแบบร่างไว้เทียบหลายแบบ (เก็บใน Browser ด้วย localStorage)</p>
-
-            <label>เลือก Slot</label>
-            <select id="draftSlotSelect"></select>
-
-            <label>ชื่อแบบร่าง</label>
-            <input type="text" id="draftNameInput" placeholder="เช่น แบบ A / แบบ B">
-
-            <button id="draftSaveBtn">บันทึกลง Slot</button>
-            <button class="secondary" id="draftLoadBtn">โหลดจาก Slot</button>
-            <button class="secondary" id="draftDeleteBtn">ลบ Slot</button>
-            <p class="section-note" id="draftMetaNote"></p>
-        </div>
     </div>
 
+    <!-- ═══════════════════════════════════════ MIDDLE (3D VIEWER) ═══════════════════════════════ -->
     <div id="canvas-container">
-        <div id="tooltip">คลิกซ้าย: หมุนกระเบื้อง | โหมดลบกำแพง: คลิกกำแพงเพื่อ ลบ/คืน | เลือกหน้าต่าง/ประตูแล้วลากเพื่อวาง | คลิกขวาที่หน้าต่าง/ประตูเพื่อลบ | คลิกขวา: หมุนกล้อง</div>
+
+        <!-- Save/Load Toolbar -->
+        <div id="draft-toolbar">
+            <div class="draft-slot-group">
+                <span class="draft-icon">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                </span>
+                <select id="draftSlotSelect" class="draft-select"></select>
+            </div>
+            <input type="text" id="draftNameInput" class="draft-name-input" placeholder="ชื่อแบบร่าง…">
+            <button class="draft-btn primary" id="draftSaveBtn">บันทึก</button>
+            <button class="draft-btn" id="draftLoadBtn">โหลด</button>
+            <button class="draft-btn danger" id="draftDeleteBtn">ลบ</button>
+            <span class="draft-meta" id="draftMetaNote"></span>
+        </div>
+
+        <!-- Viewport hint -->
+        <div id="tooltip">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            คลิกซ้าย: หมุนกระเบื้อง &nbsp;|&nbsp; ลากบนกำแพง: วางหน้าต่าง/ประตู &nbsp;|&nbsp; คลิกขวา: หมุนกล้อง
+        </div>
+
+    </div>
+
+    <!-- ═══════════════════════════════════════ RIGHT PANEL ═══════════════════════════════════════ -->
+    <div id="right-panel">
+
+        <!-- Section: Price Calculation -->
+        <div class="panel-section">
+            <div class="section-header">
+                <span class="section-tag accent-gold">฿</span>
+                <h3 class="section-title">คำนวณราคา</h3>
+            </div>
+
+            <div class="field">
+                <label>ราคาต่อแผ่น (บาท)</label>
+                <input type="number" id="tilePriceInput" value="120" min="1" oninput="updatePriceSummary()">
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-row">
+                    <span class="stat-label">จำนวนแผ่น</span>
+                    <span class="stat-value" id="tileCountVal">0</span>
+                </div>
+                <div class="stat-divider"></div>
+                <div class="stat-row">
+                    <span class="stat-label">ราคา / แผ่น</span>
+                    <span class="stat-value" id="tileUnitPriceVal">0</span>
+                </div>
+            </div>
+
+            <div class="total-card">
+                <div class="total-label">ราคารวมทั้งหมด</div>
+                <div class="total-value" id="tileTotalPriceVal">฿ 0</div>
+            </div>
+        </div>
+
+        <!-- Divider -->
+        <div class="right-divider"></div>
+
+        <!-- Section: Export Quotation -->
+        <div class="panel-section">
+            <div class="section-header">
+                <span class="section-tag accent-green">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 00-2 2v16c0 1.1.9 2 2 2h12a2 2 0 002-2V8l-6-6z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                </span>
+                <h3 class="section-title">ใบเสนอราคา</h3>
+            </div>
+            <p class="hint">สร้างใบเสนอราคา PDF พร้อมรูปห้อง 3D</p>
+
+            <div class="field">
+                <label>ชื่อลูกค้า</label>
+                <input type="text" id="quotationCustomer" placeholder="เช่น คุณสมชาย">
+            </div>
+
+            <div class="field">
+                <label>ชื่อโปรเจค</label>
+                <input type="text" id="quotationProject" placeholder="เช่น บ้านคุณสมชาย ห้องนอน">
+            </div>
+
+            <div class="field">
+                <label>จำนวนแผ่น / กล่อง</label>
+                <input type="number" id="quotationTilesPerBox" value="4" min="1" max="100">
+            </div>
+
+            <button id="quotationExportBtn" class="btn-export">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Export PDF
+            </button>
+            <p class="hint status-note" id="quotationStatus"></p>
+        </div>
+
+        <!-- Bottom brand -->
+        <div class="right-footer">
+            <span>Studio PM &copy; 2026</span>
+        </div>
+
     </div>
 
     <script type="importmap">
@@ -107,1386 +214,3 @@
     <script type="module" src="./floor.js"></script>
 </body>
 </html>
-<!--
-<!DOCTYPE html>
-<html lang="th">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Tile Layout & Wall Generator</title>
-    <style>
-        :root {
-            --bg: #f5f2ea;
-            --panel: #ffffff;
-            --panel-border: #e5e1d8;
-            --text: #1c1a17;
-            --muted: #6f6a60;
-            --primary: #b48a3d;
-            --primary-strong: #9a742e;
-            --success: #3f7d5c;
-            --shadow: none;
-            --shadow-sm: none;
-            --radius: 12px;
-        }
-
-        body {
-            margin: 0;
-            display: flex;
-            height: 100vh;
-            font-family: 'Sarabun', 'Inter', 'Segoe UI', system-ui, sans-serif;
-            overflow: hidden;
-            background: var(--bg);
-            color: var(--text);
-        }
-
-        /* Sidebar Styles */
-        #sidebar {
-            width: 340px;
-            background: #f7f4ed;
-            padding: 22px;
-            display: flex;
-            flex-direction: column;
-            border-right: 1px solid var(--panel-border);
-            overflow-y: auto;
-            gap: 14px;
-        }
-
-        h2, h3 { color: var(--text); margin: 8px 0; }
-        h2 { font-size: 20px; font-weight: 700; letter-spacing: 0.3px; }
-        h3 { font-size: 14px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; }
-
-        .control-group {
-            background: var(--panel);
-            padding: 16px 16px 14px;
-            border-radius: var(--radius);
-            margin-bottom: 14px;
-            border: 1px solid var(--panel-border);
-        }
-
-        label { display: block; font-size: 13px; margin-bottom: 6px; color: var(--muted); font-weight: 600; }
-
-        input[type="range"],
-        input[type="number"],
-        select {
-            width: 100%;
-            margin-bottom: 10px;
-            border-radius: 10px;
-            border: 1px solid var(--panel-border);
-            padding: 8px 10px;
-            background: #fff;
-            color: var(--text);
-            outline: none;
-        }
-
-        input[type="range"] {
-            padding: 0;
-            height: 6px;
-            accent-color: var(--primary);
-        }
-
-        button {
-            width: 100%;
-            padding: 10px 12px;
-            background: var(--primary);
-            color: white;
-            border: none;
-            border-radius: 10px;
-            cursor: pointer;
-            margin-top: 6px;
-            font-weight: 600;
-            transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
-        }
-
-        button:hover {
-            background: var(--primary-strong);
-            transform: translateY(-1px);
-        }
-
-        button.secondary {
-            background: #8b8579;
-        }
-
-        button.secondary:hover { background: #6f6a60; }
-
-        .section-note {
-            font-size: 12px;
-            color: var(--muted);
-            margin: 6px 0 0 0;
-        }
-
-        .swatch-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 12px;
-            margin-top: 10px;
-        }
-
-        .swatch-item {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-
-        .tile-swatch {
-            height: 74px;
-            border-radius: 12px;
-            border: 1px solid var(--panel-border);
-            cursor: pointer;
-            background-size: cover;
-            background-position: center;
-            overflow: hidden;
-            transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
-        }
-
-        .tile-swatch:hover {
-            transform: translateY(-2px);
-            border-color: var(--primary);
-        }
-
-        .tile-swatch.active {
-            border-color: var(--primary);
-            outline: 2px solid rgba(180, 138, 61, 0.2);
-        }
-
-        .swatch-caption {
-            font-size: 12px;
-            color: var(--muted);
-            text-align: center;
-            font-weight: 600;
-        }
-
-        .toggle-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 10px;
-        }
-
-        .toggle-row input { width: auto; accent-color: var(--primary); }
-
-        .hidden-select { display: none; }
-
-        /* Grid Editor Styles */
-        #grid-editor {
-            display: grid;
-            gap: 4px;
-            background: #f0ece4;
-            border: 1px solid var(--panel-border);
-            margin-top: 10px;
-            width: fit-content;
-            border-radius: 12px;
-            padding: 6px;
-        }
-
-        .grid-cell {
-            width: 25px;
-            height: 25px;
-            background: white;
-            cursor: pointer;
-            border-radius: 6px;
-            border: 1px solid var(--panel-border);
-        }
-
-        .grid-cell.active {
-            background: var(--success);
-            border-color: #2f6a4b;
-        }
-
-        #canvas-container { flex-grow: 1; position: relative; background: #ece7dd; }
-
-        #tooltip {
-            position: absolute;
-            top: 14px;
-            left: 14px;
-            background: #ffffff;
-            color: var(--text);
-            padding: 8px 12px;
-            border-radius: 10px;
-            font-size: 12px;
-            letter-spacing: 0.2px;
-            pointer-events: none;
-            border: 1px solid var(--panel-border);
-        }
-
-        .price-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 10px 12px;
-            border-radius: 10px;
-            background: #f5f1e8;
-            border: 1px solid var(--panel-border);
-            font-size: 13px;
-            margin-top: 8px;
-        }
-
-        .price-row strong {
-            font-size: 15px;
-            color: var(--text);
-        }
-
-        .price-total {
-            background: #fff5e1;
-            border-color: #e8d8b2;
-        }
-    </style>
-</head>
-<body>
-
-    <div id="sidebar">
-        <h2>ออกแบบแปลนห้อง</h2>
-        
-        <div class="control-group">
-            <h3>1. ขนาดพื้นที่ (ช่อง)</h3>
-            <div style="display: flex; gap: 10px;">
-                <div><label>กว้าง (X)</label><input type="number" id="gridW" value="4" min="2" max="10"></div>
-                <div><label>ลึก (Y)</label><input type="number" id="gridH" value="4" min="2" max="10"></div>
-            </div>
-            <button class="secondary" onclick="resetGrid()">รีเซ็ตตาราง</button>
-            
-            <p class="section-note">*คลิกที่ช่องตารางด้านล่างเพื่อ สร้าง/ลบ พื้น (ทำตัว L ได้)</p>
-            <div id="grid-wrapper" style="overflow-x: auto;">
-                <div id="grid-editor"></div>
-            </div>
-        </div>
-
-        <div class="control-group">
-            <h3>2. ปรับกำแพง</h3>
-            <label>ความสูงกำแพง: <span id="wallHeightVal">2.5</span>m</label>
-            <input type="range" id="wallHeightInfo" min="1" max="5" step="0.1" value="2.5" oninput="updateWallHeight(this.value)">
-            
-            <label>เลือกพื้นผิวกำแพง</label>
-            <div id="wallSwatches" class="swatch-grid"></div>
-            <select id="wallTextureSelect" class="hidden-select" onchange="updateWallTexture()"></select>
-
-            <div class="toggle-row" style="margin-top: 10px;">
-                <label style="margin: 0;">โหมดลบกำแพง</label>
-                <input type="checkbox" id="wallDeleteToggle" onchange="toggleWallDeleteMode(this.checked)">
-            </div>
-            <p class="section-note">*เปิดโหมดนี้แล้วคลิกกำแพงเพื่อ ลบ/คืนกำแพง</p>
-        </div>
-
-        <div class="control-group">
-            <h3>3. จัดการกระเบื้อง</h3>
-            <p class="section-note">*คลิกที่กระเบื้องใน 3D เพื่อหมุนทีละแผ่น</p>
-            <button onclick="rotateAllTiles()">หมุนทั้งหมด (+90°)</button>
-
-            <label style="margin-top: 10px;">เลือก Mock Up ลายกระเบื้อง</label>
-            <div id="tileSwatches" class="swatch-grid"></div>
-        </div>
-
-        <div class="control-group">
-            <h3>4. หน้าต่างและประตู</h3>
-            <p class="section-note">*เลือกชนิดแล้วคลิกหรือลากบนกำแพงเพื่อวาง/ย้าย | คลิกขวาที่ชิ้นงานเพื่อลบ</p>
-            <div id="fixtureSwatches" class="swatch-grid"></div>
-        </div>
-
-        <div class="control-group">
-            <h3>5. คำนวณราคา</h3>
-            <label>ราคาต่อแผ่น (บาท)</label>
-            <input type="number" id="tilePriceInput" value="120" min="1" oninput="updatePriceSummary()">
-            <div class="price-row">
-                <span>จำนวนแผ่นที่ใช้</span>
-                <strong id="tileCountVal">0</strong>
-            </div>
-            <div class="price-row">
-                <span>ราคา/แผ่น</span>
-                <strong id="tileUnitPriceVal">0</strong>
-            </div>
-            <div class="price-row price-total">
-                <span>ราคารวม</span>
-                <strong id="tileTotalPriceVal">0</strong>
-            </div>
-        </div>
-    </div>
-
-    <div id="canvas-container">
-        <div id="tooltip">คลิกซ้าย: หมุนกระเบื้อง | โหมดลบกำแพง: คลิกกำแพงเพื่อ ลบ/คืน | เลือกหน้าต่าง/ประตูแล้วลากเพื่อวาง | คลิกขวาที่หน้าต่าง/ประตูเพื่อลบ | คลิกขวา: หมุนกล้อง</div>
-    </div>
-
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-            }
-        }
-    </script>
-
-    <script type="module">
-        import * as THREE from 'three';
-        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-
-        // --- 1. State Management (เก็บข้อมูล Grid) ---
-        let gridWidth = 4;
-        let gridHeight = 4;
-        let wallHeight = 2.5;
-        // gridData เก็บสถานะ: 0 = ว่าง, 1 = มีพื้น
-        // rotationData เก็บมุมหมุนของแต่ละช่อง: 0, 1, 2, 3 (x 90 deg)
-        let gridData = []; 
-        let rotationData = [];
-        let tilePattern = 'quarter';
-        let wallPattern = 'paint';
-        let placementMode = null;
-        let tilePrice = 120;
-        let wallDeleteMode = false;
-        let ignoreNextClick = false;
-        let isDraggingFixture = false;
-        let draggingFixture = null;
-        const removedWalls = new Set();
-
-        // --- 2. Procedural Texture Generator (สร้างลายกระเบื้อง) ---
-        function createQuarterCircleTexture() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 512; canvas.height = 512;
-            const ctx = canvas.getContext('2d');
-            
-            // พื้นหลัง
-            ctx.fillStyle = '#f0f0f0';
-            ctx.fillRect(0,0,512,512);
-            
-            // วาดเสี้ยววงกลม (Quarter Circle) ที่มุมขวาล่าง
-            ctx.beginPath();
-            ctx.moveTo(512, 512); // มุมขวาล่าง
-            ctx.arc(512, 512, 450, Math.PI, 1.5 * Math.PI); // วาดโค้ง
-            ctx.lineTo(512, 512);
-            ctx.fillStyle = '#2c3e50'; // สีวงกลม
-            ctx.fill();
-
-            // เส้นขอบกระเบื้อง
-            ctx.strokeStyle = '#ddd';
-            ctx.lineWidth = 10;
-            ctx.strokeRect(0,0,512,512);
-
-            return canvas;
-        }
-
-        function createCheckerTexture() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 512; canvas.height = 512;
-            const ctx = canvas.getContext('2d');
-            const size = 64;
-            for (let y = 0; y < 8; y++) {
-                for (let x = 0; x < 8; x++) {
-                    ctx.fillStyle = (x + y) % 2 === 0 ? '#f5f5f5' : '#cfd8dc';
-                    ctx.fillRect(x * size, y * size, size, size);
-                }
-            }
-            ctx.strokeStyle = '#e0e0e0';
-            ctx.lineWidth = 6;
-            ctx.strokeRect(0, 0, 512, 512);
-            return canvas;
-        }
-
-        function createDiagonalStripeTexture() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 512; canvas.height = 512;
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#f2efe9';
-            ctx.fillRect(0, 0, 512, 512);
-            ctx.strokeStyle = '#b0a99f';
-            ctx.lineWidth = 20;
-            for (let i = -512; i <= 512; i += 80) {
-                ctx.beginPath();
-                ctx.moveTo(i, 0);
-                ctx.lineTo(i + 512, 512);
-                ctx.stroke();
-            }
-            ctx.strokeStyle = '#e0e0e0';
-            ctx.lineWidth = 6;
-            ctx.strokeRect(0, 0, 512, 512);
-            return canvas;
-        }
-
-        function createTerrazzoTexture() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 512; canvas.height = 512;
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#f7f4ef';
-            ctx.fillRect(0, 0, 512, 512);
-            const colors = ['#d19c7c', '#8aa1b1', '#c9c3b8', '#a4b494'];
-            for (let i = 0; i < 220; i++) {
-                ctx.fillStyle = colors[i % colors.length];
-                const r = 6 + Math.random() * 14;
-                const x = Math.random() * 512;
-                const y = Math.random() * 512;
-                ctx.beginPath();
-                ctx.ellipse(x, y, r, r * 0.6, Math.random() * Math.PI, 0, Math.PI * 2);
-                ctx.fill();
-            }
-            ctx.strokeStyle = '#e0e0e0';
-            ctx.lineWidth = 6;
-            ctx.strokeRect(0, 0, 512, 512);
-            return canvas;
-        }
-
-        function createBrickTexture() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 512; canvas.height = 512;
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#b14f44';
-            ctx.fillRect(0,0,512,512);
-
-            const brickH = 48;
-            const brickW = 96;
-            const mortar = 6;
-            for (let y = 0; y < 512; y += brickH + mortar) {
-                const offset = (Math.floor(y / (brickH + mortar)) % 2) * (brickW / 2);
-                for (let x = -brickW; x < 512 + brickW; x += brickW + mortar) {
-                    const rx = x + offset;
-                    ctx.fillStyle = '#9a3f37';
-                    ctx.fillRect(rx, y, brickW, brickH);
-                    ctx.fillStyle = 'rgba(255,255,255,0.06)';
-                    ctx.fillRect(rx + 6, y + 6, brickW - 12, brickH - 12);
-                }
-            }
-
-            ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-            ctx.lineWidth = 2;
-            for (let y = 0; y < 512; y += brickH + mortar) {
-                ctx.beginPath();
-                ctx.moveTo(0, y - mortar / 2);
-                ctx.lineTo(512, y - mortar / 2);
-                ctx.stroke();
-            }
-            return canvas;
-        }
-
-        function createPlasterTexture() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 512; canvas.height = 512;
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#f2f0eb';
-            ctx.fillRect(0,0,512,512);
-            for (let i = 0; i < 2000; i++) {
-                const g = 230 + Math.floor(Math.random() * 15);
-                ctx.fillStyle = `rgb(${g},${g},${g})`;
-                ctx.globalAlpha = 0.25;
-                ctx.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
-            }
-            ctx.globalAlpha = 1;
-            return canvas;
-        }
-
-        function createConcreteTexture() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 512; canvas.height = 512;
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#c9c9c9';
-            ctx.fillRect(0,0,512,512);
-            for (let i = 0; i < 1500; i++) {
-                const g = 170 + Math.floor(Math.random() * 40);
-                ctx.fillStyle = `rgb(${g},${g},${g})`;
-                ctx.globalAlpha = 0.35;
-                ctx.fillRect(Math.random() * 512, Math.random() * 512, 3, 3);
-            }
-            ctx.globalAlpha = 1;
-            ctx.strokeStyle = 'rgba(120,120,120,0.35)';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(0, 256);
-            ctx.lineTo(512, 256);
-            ctx.stroke();
-            return canvas;
-        }
-
-        function createWallTileTexture() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 512; canvas.height = 512;
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#f7f7f7';
-            ctx.fillRect(0,0,512,512);
-            ctx.strokeStyle = '#d2d2d2';
-            ctx.lineWidth = 6;
-            const size = 128;
-            for (let y = 0; y <= 512; y += size) {
-                ctx.beginPath();
-                ctx.moveTo(0, y);
-                ctx.lineTo(512, y);
-                ctx.stroke();
-            }
-            for (let x = 0; x <= 512; x += size) {
-                ctx.beginPath();
-                ctx.moveTo(x, 0);
-                ctx.lineTo(x, 512);
-                ctx.stroke();
-            }
-            return canvas;
-        }
-
-        function createWindowTextureCanvas() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 512;
-            canvas.height = 512;
-            const ctx = canvas.getContext('2d');
-
-            const gradient = ctx.createLinearGradient(0, 0, 512, 512);
-            gradient.addColorStop(0, '#c7e3ff');
-            gradient.addColorStop(1, '#8abfff');
-            ctx.fillStyle = gradient;
-            ctx.fillRect(0, 0, 512, 512);
-
-            ctx.strokeStyle = '#cbd5e1';
-            ctx.lineWidth = 20;
-            ctx.strokeRect(24, 24, 464, 464);
-
-            ctx.fillStyle = '#f8fafc';
-            ctx.fillRect(36, 36, 440, 440);
-
-            ctx.fillStyle = gradient;
-            ctx.fillRect(60, 60, 392, 392);
-
-            ctx.fillStyle = '#e2e8f0';
-            ctx.fillRect(246, 60, 20, 392);
-            ctx.fillRect(60, 246, 392, 20);
-
-            ctx.fillStyle = 'rgba(255,255,255,0.35)';
-            ctx.fillRect(90, 90, 120, 80);
-            return canvas;
-        }
-
-        function createDoorTextureCanvas() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 512;
-            canvas.height = 1024;
-            const ctx = canvas.getContext('2d');
-
-            const gradient = ctx.createLinearGradient(0, 0, 0, 1024);
-            gradient.addColorStop(0, '#c28b6a');
-            gradient.addColorStop(1, '#9a6a4a');
-
-            ctx.fillStyle = gradient;
-            ctx.fillRect(0, 0, 512, 1024);
-
-            ctx.strokeStyle = '#7c4a2d';
-            ctx.lineWidth = 18;
-            ctx.strokeRect(28, 24, 456, 976);
-
-            ctx.fillStyle = '#d2a07b';
-            ctx.fillRect(90, 140, 332, 240);
-            ctx.fillStyle = '#b98561';
-            ctx.fillRect(90, 430, 332, 520);
-
-            ctx.strokeStyle = '#b88763';
-            ctx.lineWidth = 10;
-            ctx.strokeRect(90, 140, 332, 240);
-            ctx.strokeRect(90, 430, 332, 520);
-
-            ctx.fillStyle = '#facc15';
-            ctx.beginPath();
-            ctx.arc(410, 560, 18, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.strokeStyle = '#a16207';
-            ctx.lineWidth = 6;
-            ctx.stroke();
-
-            ctx.fillStyle = 'rgba(255,255,255,0.35)';
-            ctx.fillRect(120, 210, 80, 18);
-            return canvas;
-        }
-
-        // --- 3. Three.js Setup ---
-        const container = document.getElementById('canvas-container');
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0xdddddd);
-
-        const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
-        camera.position.set(0, 8, 8); // มุมมองเฉียงลง
-
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(container.clientWidth, container.clientHeight);
-        renderer.shadowMap.enabled = true;
-        container.appendChild(renderer.domElement);
-
-        const controls = new OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
-
-        // Lighting
-        const ambLight = new THREE.AmbientLight(0xffffff, 0.6);
-        scene.add(ambLight);
-        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        dirLight.position.set(5, 10, 5);
-        dirLight.castShadow = true;
-        scene.add(dirLight);
-
-        // Materials & Geometries
-        const tileTextureCanvases = {
-            quarter: createQuarterCircleTexture(),
-            checker: createCheckerTexture(),
-            diagonal: createDiagonalStripeTexture(),
-            terrazzo: createTerrazzoTexture()
-        };
-
-        const fixtureTextureCanvases = {
-            window: createWindowTextureCanvas(),
-            door: createDoorTextureCanvas()
-        };
-
-        const tilePatternList = [
-            { key: 'quarter', label: 'ลายโค้ง', type: 'canvas' },
-            { key: 'checker', label: 'ตารางสลับ', type: 'canvas' },
-            { key: 'diagonal', label: 'เส้นเฉียง', type: 'canvas' },
-            { key: 'terrazzo', label: 'เทอราซโซ', type: 'canvas' },
-            { key: 'real1', label: 'ภาพจริง 1', type: 'image', url: './floor-1.jpeg' },
-            { key: 'real2', label: 'ภาพจริง 2', type: 'image', url: './floor-2.jpeg' },
-            { key: 'real3', label: 'ภาพจริง 3', type: 'image', url: './floor-3.jpeg' }
-        ];
-
-        const wallTextureList = [
-            { key: 'paint', label: 'สีเรียบ', type: 'solid', color: 0xeeeeee, roughness: 0.9, metalness: 0.0 },
-            { key: 'brick', label: 'อิฐก่อ', type: 'canvas', canvas: createBrickTexture(), options: { bumpScale: 0.08, roughness: 0.85 } },
-            { key: 'plaster', label: 'ปูนฉาบ', type: 'canvas', canvas: createPlasterTexture(), options: { bumpScale: 0.03, roughness: 0.9 } },
-            { key: 'concrete', label: 'คอนกรีต', type: 'canvas', canvas: createConcreteTexture(), options: { bumpScale: 0.04, roughness: 0.95 } },
-            { key: 'walltile', label: 'กระเบื้องผนัง', type: 'canvas', canvas: createWallTileTexture(), options: { bumpScale: 0.02, roughness: 0.5 } },
-            { key: 'wallreal1', label: 'ภาพจริง 1', type: 'image', url: './wall-1.jpeg', repeatX: 2, repeatYPerMeter: 1 },
-            { key: 'wallreal2', label: 'ภาพจริง 2', type: 'image', url: './wall-2.jpeg', repeatX: 2, repeatYPerMeter: 1 }
-        ];
-
-        const fixtureCatalog = [
-            {
-                key: 'window',
-                label: 'หน้าต่าง',
-                type: 'window',
-                width: 0.9,
-                height: 0.8,
-                depth: 0.08,
-                preview: {
-                    base: '#93c5fd',
-                    accent: '#e2e8f0'
-                }
-            },
-            {
-                key: 'door',
-                label: 'ประตู',
-                type: 'door',
-                width: 0.95,
-                height: 2.0,
-                depth: 0.1,
-                preview: {
-                    base: '#b08968',
-                    accent: '#fef9c3'
-                }
-            }
-        ];
-
-        const tileTextures = {};
-        Object.keys(tileTextureCanvases).forEach((key) => {
-            const tex = new THREE.CanvasTexture(tileTextureCanvases[key]);
-            tex.colorSpace = THREE.SRGBColorSpace;
-            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-            tileTextures[key] = tex;
-        });
-
-        const fixtureTextures = {};
-        Object.keys(fixtureTextureCanvases).forEach((key) => {
-            const tex = new THREE.CanvasTexture(fixtureTextureCanvases[key]);
-            tex.colorSpace = THREE.SRGBColorSpace;
-            tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-            tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy?.() ?? 4);
-            fixtureTextures[key] = tex;
-        });
-
-        function resolveAssetUrl(url) {
-            return new URL(url, window.location.href).href;
-        }
-
-        function loadImageTileTexture(url, repeat = 2) {
-            const tex = new THREE.TextureLoader().load(resolveAssetUrl(url));
-            tex.colorSpace = THREE.SRGBColorSpace;
-            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-            tex.repeat.set(repeat, repeat);
-            tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy?.() ?? 4);
-            return tex;
-        }
-
-        function loadImageWallMaterial(url, repeatX = 2, repeatY = 1, rotation = 0) {
-            const map = new THREE.TextureLoader().load(resolveAssetUrl(url));
-            map.colorSpace = THREE.SRGBColorSpace;
-            map.wrapS = map.wrapT = THREE.RepeatWrapping;
-            map.repeat.set(repeatX, repeatY);
-            if (rotation !== 0) {
-                map.center.set(0.5, 0.5);
-                map.rotation = rotation;
-            }
-            map.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy?.() ?? 4);
-            return new THREE.MeshStandardMaterial({
-                map,
-                roughness: 0.8,
-                metalness: 0.0
-            });
-        }
-
-        tilePatternList
-            .filter(item => item.type === 'image')
-            .forEach(item => {
-                tileTextures[item.key] = loadImageTileTexture(item.url, 2);
-            });
-        function createWallMaterialFromCanvas(canvas, options = {}) {
-            const map = new THREE.CanvasTexture(canvas);
-            map.wrapS = map.wrapT = THREE.RepeatWrapping;
-            map.repeat.set(2, 1);
-            const bump = new THREE.CanvasTexture(canvas);
-            bump.wrapS = bump.wrapT = THREE.RepeatWrapping;
-            bump.repeat.set(2, 1);
-            return new THREE.MeshStandardMaterial({
-                map,
-                bumpMap: bump,
-                bumpScale: options.bumpScale ?? 0.05,
-                roughness: options.roughness ?? 0.8,
-                metalness: options.metalness ?? 0.0
-            });
-        }
-
-        const wallMaterials = wallTextureList.reduce((acc, item) => {
-            if (item.type === 'solid') {
-                acc[item.key] = new THREE.MeshStandardMaterial({
-                    color: item.color,
-                    roughness: item.roughness ?? 0.9,
-                    metalness: item.metalness ?? 0.0
-                });
-            } else if (item.type === 'canvas') {
-                acc[item.key] = createWallMaterialFromCanvas(item.canvas, item.options);
-            } else if (item.type === 'image') {
-                const mat = loadImageWallMaterial(item.url, item.repeatX ?? 2, item.repeatYPerMeter ?? 1, item.rotation ?? 0);
-                mat.userData = { repeatX: item.repeatX ?? 2, repeatYPerMeter: item.repeatYPerMeter ?? 1 };
-                acc[item.key] = mat;
-            }
-            return acc;
-        }, {});
-        const tileGeometry = new THREE.PlaneGeometry(1, 1);
-        const wallThickness = 0.1;
-        const wallGeometry = new THREE.BoxGeometry(1, 1, wallThickness); // กว้าง 1, สูง 1, หนา 0.1
-
-        // Group รวม object ทั้งหมดเพื่อให้ลบง่ายเวลา render ใหม่
-        let roomGroup = new THREE.Group();
-        scene.add(roomGroup);
-        const fixturesGroup = new THREE.Group();
-        scene.add(fixturesGroup);
-
-        // Raycaster สำหรับคลิกเลือกกระเบื้อง
-        const raycaster = new THREE.Raycaster();
-        const mouse = new THREE.Vector2();
-
-        // --- 4. Logic Functions ---
-
-        // เริ่มต้นสร้าง Grid Data
-        window.resetGrid = function() {
-            gridWidth = parseInt(document.getElementById('gridW').value);
-            gridHeight = parseInt(document.getElementById('gridH').value);
-            gridData = [];
-            rotationData = [];
-            removedWalls.clear();
-            placementMode = null;
-            while (fixturesGroup.children.length > 0) {
-                fixturesGroup.remove(fixturesGroup.children[0]);
-            }
-
-            // สร้าง Array 2 มิติ
-            for(let x=0; x<gridWidth; x++) {
-                gridData[x] = [];
-                rotationData[x] = [];
-                for(let y=0; y<gridHeight; y++) {
-                    gridData[x][y] = 1; // Default คือมีพื้นเต็ม
-                    rotationData[x][y] = 0; // Default ไม่หมุน
-                }
-            }
-            renderUI();
-            build3D();
-            renderFixtureSwatches();
-            updatePriceSummary();
-        }
-
-        // สร้างตาราง UI (Grid Editor)
-        function renderUI() {
-            const editor = document.getElementById('grid-editor');
-            editor.style.gridTemplateColumns = `repeat(${gridWidth}, 1fr)`;
-            editor.innerHTML = '';
-
-            // Note: Loop y แล้ว x เพื่อให้การวาดใน HTML เรียงแถวถูกต้อง
-            for(let y=0; y<gridHeight; y++) {
-                for(let x=0; x<gridWidth; x++) {
-                    const cell = document.createElement('div');
-                    cell.className = gridData[x][y] ? 'grid-cell active' : 'grid-cell';
-                    cell.onclick = () => {
-                        gridData[x][y] = gridData[x][y] ? 0 : 1; // Toggle 0/1
-                        renderUI();
-                        build3D(); // สร้าง 3D ใหม่ทันที
-                    };
-                    editor.appendChild(cell);
-                }
-            }
-        }
-
-        function renderTileSwatches() {
-            const swatchContainer = document.getElementById('tileSwatches');
-            swatchContainer.innerHTML = '';
-
-            tilePatternList.forEach(({ key, label, type, url }) => {
-                const item = document.createElement('div');
-                item.className = 'swatch-item';
-
-                const swatch = document.createElement('div');
-                swatch.className = `tile-swatch ${tilePattern === key ? 'active' : ''}`;
-                swatch.title = label;
-                if (type === 'canvas') {
-                    swatch.style.backgroundImage = `url(${tileTextureCanvases[key].toDataURL()})`;
-                } else if (type === 'image') {
-                    swatch.style.backgroundImage = `url(${resolveAssetUrl(url)})`;
-                }
-
-                const caption = document.createElement('div');
-                caption.className = 'swatch-caption';
-                caption.textContent = label;
-
-                item.appendChild(swatch);
-                item.appendChild(caption);
-                item.onclick = () => setTilePattern(key);
-                swatchContainer.appendChild(item);
-            });
-        }
-
-        function renderWallTextureOptions() {
-            const select = document.getElementById('wallTextureSelect');
-            const currentValue = select.value || wallPattern || 'paint';
-            select.innerHTML = '';
-
-            wallTextureList.forEach(({ key, label }) => {
-                const option = document.createElement('option');
-                option.value = key;
-                option.textContent = label;
-                select.appendChild(option);
-            });
-
-            select.value = wallTextureList.some(item => item.key === currentValue) ? currentValue : 'paint';
-            wallPattern = select.value;
-        }
-
-        function renderWallSwatches() {
-            const swatchContainer = document.getElementById('wallSwatches');
-            if (!swatchContainer) return;
-            swatchContainer.innerHTML = '';
-
-            wallTextureList.forEach(({ key, label, type, canvas, url, color }) => {
-                const item = document.createElement('div');
-                item.className = 'swatch-item';
-
-                const swatch = document.createElement('div');
-                swatch.className = `tile-swatch ${wallPattern === key ? 'active' : ''}`;
-                swatch.title = label;
-
-                if (type === 'canvas' && canvas) {
-                    swatch.style.backgroundImage = `url(${canvas.toDataURL()})`;
-                } else if (type === 'image' && url) {
-                    swatch.style.backgroundImage = `url(${resolveAssetUrl(url)})`;
-                } else if (type === 'solid') {
-                    const hex = `#${color.toString(16).padStart(6, '0')}`;
-                    swatch.style.backgroundColor = hex;
-                }
-
-                const caption = document.createElement('div');
-                caption.className = 'swatch-caption';
-                caption.textContent = label;
-
-                item.appendChild(swatch);
-                item.appendChild(caption);
-                item.onclick = () => setWallTexture(key);
-                swatchContainer.appendChild(item);
-            });
-        }
-
-        function renderFixtureSwatches() {
-            const swatchContainer = document.getElementById('fixtureSwatches');
-            if (!swatchContainer) return;
-            swatchContainer.innerHTML = '';
-
-            fixtureCatalog.forEach(({ key, label, preview }) => {
-                const item = document.createElement('div');
-                item.className = 'swatch-item';
-
-                const swatch = document.createElement('div');
-                swatch.className = `tile-swatch ${placementMode === key ? 'active' : ''}`;
-                swatch.title = label;
-                if (fixtureTextureCanvases[key]) {
-                    swatch.style.backgroundImage = `url(${fixtureTextureCanvases[key].toDataURL()})`;
-                } else {
-                    swatch.style.background = `linear-gradient(135deg, ${preview.base} 0%, ${preview.accent} 100%)`;
-                }
-
-                const caption = document.createElement('div');
-                caption.className = 'swatch-caption';
-                caption.textContent = label;
-
-                item.appendChild(swatch);
-                item.appendChild(caption);
-                item.onclick = () => setPlacementMode(key);
-                swatchContainer.appendChild(item);
-            });
-        }
-
-        function setPlacementMode(mode) {
-            placementMode = placementMode === mode ? null : mode;
-            if (placementMode && wallDeleteMode) {
-                wallDeleteMode = false;
-                const toggle = document.getElementById('wallDeleteToggle');
-                if (toggle) toggle.checked = false;
-            }
-            renderFixtureSwatches();
-        }
-
-        function createFixtureMesh(type) {
-            const config = fixtureCatalog.find(item => item.key === type);
-            if (!config) return null;
-
-            const group = new THREE.Group();
-            const { width, height, depth } = config;
-            const slabDepth = Math.min(depth, wallThickness);
-            const texture = fixtureTextures[type];
-
-            if (type === 'window') {
-                const frameDepth = Math.max(0.04, slabDepth * 0.6);
-                const frameMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.75 });
-                const frame = new THREE.Mesh(new THREE.BoxGeometry(width + 0.08, height + 0.08, frameDepth), frameMat);
-                group.add(frame);
-
-                const glassMat = new THREE.MeshStandardMaterial({
-                    color: 0x9ec9ff,
-                    roughness: 0.1,
-                    metalness: 0.0,
-                    transparent: true,
-                    opacity: 0.55
-                });
-                const glass = new THREE.Mesh(new THREE.BoxGeometry(width - 0.12, height - 0.12, frameDepth * 0.35), glassMat);
-                group.add(glass);
-
-                const mullionMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.8 });
-                const mullionV = new THREE.Mesh(new THREE.BoxGeometry(0.04, height - 0.16, frameDepth * 0.5), mullionMat);
-                const mullionH = new THREE.Mesh(new THREE.BoxGeometry(width - 0.16, 0.04, frameDepth * 0.5), mullionMat);
-                group.add(mullionV, mullionH);
-            } else {
-                const doorMat = new THREE.MeshStandardMaterial({ color: 0xb98561, roughness: 0.7 });
-                const panelMat = new THREE.MeshStandardMaterial({ color: 0x9d6b4b, roughness: 0.8 });
-                const slab = new THREE.Mesh(new THREE.BoxGeometry(width, height, slabDepth), doorMat);
-                group.add(slab);
-
-                const panelDepth = Math.max(0.012, slabDepth * 0.25);
-                const panelTop = new THREE.Mesh(new THREE.BoxGeometry(width * 0.7, height * 0.25, panelDepth), panelMat);
-                const panelBottom = new THREE.Mesh(new THREE.BoxGeometry(width * 0.7, height * 0.4, panelDepth), panelMat);
-                panelTop.position.y = height * 0.18;
-                panelBottom.position.y = -height * 0.18;
-                panelTop.position.z = slabDepth / 2 + panelDepth / 2 + 0.002;
-                panelBottom.position.z = slabDepth / 2 + panelDepth / 2 + 0.002;
-                group.add(panelTop, panelBottom);
-
-                const panelTopBack = panelTop.clone();
-                const panelBottomBack = panelBottom.clone();
-                panelTopBack.position.z = -panelTop.position.z;
-                panelBottomBack.position.z = -panelBottom.position.z;
-                group.add(panelTopBack, panelBottomBack);
-
-                const knobMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.4, metalness: 0.3 });
-                const knob = new THREE.Mesh(new THREE.SphereGeometry(0.045, 18, 18), knobMat);
-                knob.position.set(width * 0.32, -height * 0.05, slabDepth / 2 + 0.03);
-                const knobBack = knob.clone();
-                knobBack.position.z = -knob.position.z;
-                group.add(knob, knobBack);
-            }
-
-            if (texture) {
-                const planeGeometry = new THREE.PlaneGeometry(width, height);
-                const planeOffset = (wallThickness / 2) + 0.006;
-                const textureMat = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide });
-
-                const frontPlane = new THREE.Mesh(planeGeometry, textureMat);
-                frontPlane.position.z = planeOffset;
-                group.add(frontPlane);
-
-                const backPlane = new THREE.Mesh(planeGeometry, textureMat);
-                backPlane.position.z = -planeOffset;
-                backPlane.rotation.y = Math.PI;
-                group.add(backPlane);
-            }
-
-            group.userData = {
-                isFixture: true,
-                type,
-                width,
-                height,
-                depth
-            };
-            return group;
-        }
-
-        function positionFixtureOnWall(fixture, wallHit) {
-            if (!fixture || !wallHit) return;
-            const { side, x, y } = wallHit.object.userData;
-            const dims = fixture.userData;
-            const point = wallHit.point.clone();
-
-            const offsetX = (gridWidth * 1) / 2 - 0.5;
-            const offsetZ = (gridHeight * 1) / 2 - 0.5;
-            const baseX = x - offsetX;
-            const baseZ = y - offsetZ;
-
-            let wallCenterX = baseX;
-            let wallCenterZ = baseZ;
-            if (side === 'left') wallCenterX -= 0.5;
-            if (side === 'right') wallCenterX += 0.5;
-            if (side === 'top') wallCenterZ -= 0.5;
-            if (side === 'bottom') wallCenterZ += 0.5;
-
-            const minY = dims.height / 2;
-            const maxY = Math.max(minY, wallHeight - dims.height / 2);
-            const clampedY = Math.min(Math.max(point.y, minY), maxY);
-
-            if (side === 'left') {
-                fixture.rotation.y = Math.PI / 2;
-                fixture.position.set(wallCenterX, clampedY, point.z);
-            } else if (side === 'right') {
-                fixture.rotation.y = Math.PI / 2;
-                fixture.position.set(wallCenterX, clampedY, point.z);
-            } else if (side === 'top') {
-                fixture.rotation.y = 0;
-                fixture.position.set(point.x, clampedY, wallCenterZ);
-            } else if (side === 'bottom') {
-                fixture.rotation.y = 0;
-                fixture.position.set(point.x, clampedY, wallCenterZ);
-            }
-
-            fixture.userData.attachedWallKey = `${x},${y},${side}`;
-        }
-
-        function placeFixtureOnWall(wallHit, type) {
-            const fixture = createFixtureMesh(type);
-            if (!fixture) return null;
-            positionFixtureOnWall(fixture, wallHit);
-            fixturesGroup.add(fixture);
-            return fixture;
-        }
-
-        function clampFixturesToWallHeight() {
-            fixturesGroup.children.forEach((fixture) => {
-                const dims = fixture.userData;
-                if (!dims?.height) return;
-                const minY = dims.height / 2;
-                const maxY = Math.max(minY, wallHeight - dims.height / 2);
-                fixture.position.y = Math.min(Math.max(fixture.position.y, minY), maxY);
-            });
-        }
-
-        function countActiveTiles() {
-            let count = 0;
-            for (let x = 0; x < gridWidth; x++) {
-                for (let y = 0; y < gridHeight; y++) {
-                    if (gridData[x][y]) count += 1;
-                }
-            }
-            return count;
-        }
-
-        function formatCurrency(value) {
-            const formatter = new Intl.NumberFormat('th-TH', {
-                maximumFractionDigits: 0
-            });
-            return formatter.format(value);
-        }
-
-        function updatePriceSummary() {
-            const input = document.getElementById('tilePriceInput');
-            const tileCountEl = document.getElementById('tileCountVal');
-            const unitPriceEl = document.getElementById('tileUnitPriceVal');
-            const totalPriceEl = document.getElementById('tileTotalPriceVal');
-
-            tilePrice = parseFloat(input?.value ?? tilePrice) || 0;
-            const tileCount = countActiveTiles();
-            const total = tileCount * tilePrice;
-
-            if (tileCountEl) tileCountEl.textContent = tileCount.toString();
-            if (unitPriceEl) unitPriceEl.textContent = formatCurrency(tilePrice);
-            if (totalPriceEl) totalPriceEl.textContent = formatCurrency(total);
-        }
-
-        window.updatePriceSummary = updatePriceSummary;
-
-        // ฟังชันก์หลัก: สร้างห้อง 3D ตามข้อมูล Grid
-        function build3D() {
-            // ลบของเก่าทิ้งให้หมด
-            while(roomGroup.children.length > 0){ 
-                roomGroup.remove(roomGroup.children[0]); 
-            }
-
-            // คำนวณ Offset ให้ห้องอยู่ตรงกลางโลก
-            const offsetX = (gridWidth * 1) / 2 - 0.5;
-            const offsetZ = (gridHeight * 1) / 2 - 0.5;
-
-            for(let x=0; x<gridWidth; x++) {
-                for(let y=0; y<gridHeight; y++) {
-                    
-                    if (gridData[x][y] === 0) continue; // ถ้าช่องนี้ไม่มีพื้น ข้ามไป
-
-                    // 1. สร้างพื้น (Tile)
-                    const tile = new THREE.Mesh(tileGeometry, new THREE.MeshStandardMaterial({ map: tileTextures[tilePattern] }));
-                    tile.rotation.x = -Math.PI / 2; // นอนราบ
-                    tile.rotation.z = - (rotationData[x][y] * Math.PI / 2); // หมุนตามค่าที่เก็บไว้
-                    tile.position.set(x - offsetX, 0, y - offsetZ);
-                    tile.userData = { x, y, isTile: true }; // เก็บข้อมูลพิกัดไว้ใน mesh เพื่อใช้ตอนคลิก
-                    tile.receiveShadow = true;
-                    roomGroup.add(tile);
-
-                    // 2. สร้างกำแพง (Wall Generation Algorithm)
-                    // เช็ค 4 ทิศ (บน, ล่าง, ซ้าย, ขวา) ถ้าทิศไหนไม่มีเพื่อนบ้าน ให้สร้างกำแพง
-                    const currentMat = wallMaterials[wallPattern];
-                    if (currentMat?.map && currentMat.userData?.repeatYPerMeter) {
-                        const repeatX = currentMat.userData.repeatX ?? 1;
-                        const repeatY = currentMat.userData.repeatYPerMeter * wallHeight;
-                        currentMat.map.repeat.set(repeatX, repeatY);
-                        currentMat.map.needsUpdate = true;
-                    }
-
-                    // เช็คด้านบน (y-1 ใน Grid คือทิศ North ใน 3D)
-                    if (y === 0 || gridData[x][y-1] === 0) {
-                        createWall(x - offsetX, y - offsetZ, 'top', currentMat, x, y);
-                    }
-                    // เช็คด้านล่าง
-                    if (y === gridHeight-1 || gridData[x][y+1] === 0) {
-                        createWall(x - offsetX, y - offsetZ, 'bottom', currentMat, x, y);
-                    }
-                    // เช็คด้านซ้าย
-                    if (x === 0 || gridData[x-1][y] === 0) {
-                        createWall(x - offsetX, y - offsetZ, 'left', currentMat, x, y);
-                    }
-                    // เช็คด้านขวา
-                    if (x === gridWidth-1 || gridData[x+1][y] === 0) {
-                        createWall(x - offsetX, y - offsetZ, 'right', currentMat, x, y);
-                    }
-                }
-            }
-
-            updatePriceSummary();
-        }
-
-        function createWall(x, z, side, material, gridX, gridY) {
-            const wallKey = `${gridX},${gridY},${side}`;
-            if (removedWalls.has(wallKey)) return;
-            const h = parseFloat(wallHeight);
-            const wall = new THREE.Mesh(wallGeometry, material);
-            
-            // ปรับขนาดความสูง
-            wall.scale.y = h; 
-            
-            // ตำแหน่งพื้นฐานคือกลางกระเบื้อง ยกขึ้นครึ่งนึงของความสูง
-            wall.position.set(x, h/2, z);
-
-            // ขยับไปไว้ที่ขอบตามทิศ
-            if (side === 'top') {
-                wall.position.z -= 0.5;
-            } else if (side === 'bottom') {
-                wall.position.z += 0.5;
-            } else if (side === 'left') {
-                wall.position.x -= 0.5;
-                wall.rotation.y = Math.PI / 2;
-            } else if (side === 'right') {
-                wall.position.x += 0.5;
-                wall.rotation.y = Math.PI / 2;
-            }
-
-            wall.castShadow = true;
-            wall.receiveShadow = true;
-            wall.userData = { isWall: true, x: gridX, y: gridY, side };
-            roomGroup.add(wall);
-        }
-
-        // --- Interaction Handlers ---
-
-        window.updateWallHeight = function(val) {
-            wallHeight = val;
-            document.getElementById('wallHeightVal').innerText = val;
-            clampFixturesToWallHeight();
-            build3D();
-        }
-
-        window.updateWallTexture = function() {
-            const select = document.getElementById('wallTextureSelect');
-            if (select) {
-                wallPattern = select.value;
-            }
-            renderWallSwatches();
-            build3D();
-        }
-
-        window.toggleWallDeleteMode = function(enabled) {
-            wallDeleteMode = enabled;
-            if (wallDeleteMode && placementMode) {
-                placementMode = null;
-                renderFixtureSwatches();
-            }
-        }
-
-        function setTilePattern(patternKey) {
-            tilePattern = patternKey;
-            renderTileSwatches();
-            build3D();
-        }
-
-        function setWallTexture(patternKey) {
-            wallPattern = patternKey;
-            const select = document.getElementById('wallTextureSelect');
-            if (select) {
-                select.value = patternKey;
-            }
-            renderWallSwatches();
-            build3D();
-        }
-
-        window.rotateAllTiles = function() {
-            for(let x=0; x<gridWidth; x++) {
-                for(let y=0; y<gridHeight; y++) {
-                    if(gridData[x][y]) rotationData[x][y] = (rotationData[x][y] + 1) % 4;
-                }
-            }
-            build3D();
-        }
-
-        // Event Listener สำหรับคลิกที่กระเบื้องใน 3D
-        renderer.domElement.addEventListener('click', onCanvasClick, false);
-        renderer.domElement.addEventListener('pointerdown', onPointerDown, false);
-        renderer.domElement.addEventListener('pointermove', onPointerMove, false);
-        renderer.domElement.addEventListener('pointerup', onPointerUp, false);
-        renderer.domElement.addEventListener('contextmenu', onContextMenu, false);
-
-        function onPointerDown(event) {
-            if (event.button !== 0) return;
-            const rect = renderer.domElement.getBoundingClientRect();
-            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-            raycaster.setFromCamera(mouse, camera);
-            const fixtureHits = raycaster.intersectObjects(fixturesGroup.children, true);
-
-            if (fixtureHits.length > 0) {
-                const fixtureHit = fixtureHits.find(hit => hit.object.parent?.userData?.isFixture || hit.object.userData?.isFixture);
-                if (fixtureHit) {
-                    draggingFixture = fixtureHit.object.userData?.isFixture ? fixtureHit.object : fixtureHit.object.parent;
-                    isDraggingFixture = true;
-                    ignoreNextClick = true;
-                    controls.enabled = false;
-                    return;
-                }
-            }
-
-            if (placementMode && !wallDeleteMode) {
-                const wallHits = raycaster.intersectObjects(roomGroup.children, true);
-                const wallHit = wallHits.find(hit => hit.object.userData.isWall);
-                if (wallHit) {
-                    const placed = placeFixtureOnWall(wallHit, placementMode);
-                    if (placed) {
-                        draggingFixture = placed;
-                        isDraggingFixture = true;
-                        controls.enabled = false;
-                        placementMode = null;
-                        renderFixtureSwatches();
-                    }
-                    ignoreNextClick = true;
-                    return;
-                }
-            }
-        }
-
-        function onPointerMove(event) {
-            if (!isDraggingFixture || !draggingFixture || (event.buttons & 1) === 0) return;
-            const rect = renderer.domElement.getBoundingClientRect();
-            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-            raycaster.setFromCamera(mouse, camera);
-
-            const wallHits = raycaster.intersectObjects(roomGroup.children, true);
-            const wallHit = wallHits.find(hit => hit.object.userData.isWall);
-            if (wallHit) {
-                positionFixtureOnWall(draggingFixture, wallHit);
-            }
-        }
-
-        function onPointerUp() {
-            if (isDraggingFixture) {
-                isDraggingFixture = false;
-                draggingFixture = null;
-                controls.enabled = true;
-            }
-        }
-
-        function onContextMenu(event) {
-            const rect = renderer.domElement.getBoundingClientRect();
-            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-            raycaster.setFromCamera(mouse, camera);
-            const fixtureHits = raycaster.intersectObjects(fixturesGroup.children, true);
-            const fixtureHit = fixtureHits.find(hit => hit.object.parent?.userData?.isFixture || hit.object.userData?.isFixture);
-            if (fixtureHit) {
-                event.preventDefault();
-                const target = fixtureHit.object.userData?.isFixture ? fixtureHit.object : fixtureHit.object.parent;
-                fixturesGroup.remove(target);
-                ignoreNextClick = true;
-            }
-        }
-
-        function onCanvasClick(event) {
-            if (ignoreNextClick) {
-                ignoreNextClick = false;
-                return;
-            }
-            // คำนวณตำแหน่งเมาส์
-            const rect = renderer.domElement.getBoundingClientRect();
-            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-            raycaster.setFromCamera(mouse, camera);
-            const intersects = raycaster.intersectObjects(roomGroup.children);
-
-            if (intersects.length > 0) {
-                if (wallDeleteMode) {
-                    const wallHit = intersects.find(hit => hit.object.userData.isWall);
-                    if (wallHit) {
-                        const { x, y, side } = wallHit.object.userData;
-                        const wallKey = `${x},${y},${side}`;
-                        if (removedWalls.has(wallKey)) {
-                            removedWalls.delete(wallKey);
-                        } else {
-                            removedWalls.add(wallKey);
-                        }
-                        build3D();
-                    }
-                    return;
-                }
-
-                const tileHit = intersects.find(hit => hit.object.userData.isTile);
-                if (tileHit) {
-                    const { x, y } = tileHit.object.userData;
-                    rotationData[x][y] = (rotationData[x][y] + 1) % 4;
-                    build3D();
-                }
-            }
-        }
-
-        // Init
-        renderWallTextureOptions();
-        renderWallSwatches();
-        renderTileSwatches();
-        resetGrid();
-
-        // Animation Loop
-        function animate() {
-            requestAnimationFrame(animate);
-            controls.update();
-            renderer.render(scene, camera);
-        }
-        window.addEventListener('resize', () => {
-            camera.aspect = container.clientWidth / container.clientHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(container.clientWidth, container.clientHeight);
-        });
-        animate();
-
-    </script>
-</body>
-</html>
--->
