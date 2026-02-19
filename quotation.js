@@ -5,8 +5,12 @@
  */
 
 const JSPDF_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+const PDF_THAI_FONT_URL = './assets/fonts/Sarabun-Regular.ttf';
+const PDF_THAI_FONT_FILE = 'Sarabun-Regular.ttf';
+const PDF_THAI_FONT_FAMILY = 'Sarabun';
 
 let jsPDFModule = null;
+let thaiFontBase64Promise = null;
 
 async function loadJsPDF() {
     if (jsPDFModule) return jsPDFModule;
@@ -30,9 +34,72 @@ function formatCurrency(value) {
     return new Intl.NumberFormat('th-TH', { maximumFractionDigits: 0 }).format(value);
 }
 
+function arrayBufferToBase64(arrayBuffer) {
+    const bytes = new Uint8Array(arrayBuffer);
+    const chunkSize = 0x8000;
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+        const chunk = bytes.subarray(i, i + chunkSize);
+        binary += String.fromCharCode(...chunk);
+    }
+    return btoa(binary);
+}
+
+async function loadThaiFontBase64() {
+    if (!thaiFontBase64Promise) {
+        thaiFontBase64Promise = fetch(PDF_THAI_FONT_URL)
+            .then((res) => {
+                if (!res.ok) {
+                    throw new Error(`โหลดฟอนต์ PDF ไม่สำเร็จ (${res.status})`);
+                }
+                return res.arrayBuffer();
+            })
+            .then(arrayBufferToBase64);
+    }
+    return thaiFontBase64Promise;
+}
+
+async function ensurePdfThaiFont(doc) {
+    const fontList = doc.getFontList?.() || {};
+    const hasThaiFont = Array.isArray(fontList[PDF_THAI_FONT_FAMILY])
+        ? fontList[PDF_THAI_FONT_FAMILY].includes('normal')
+        : false;
+
+    if (!hasThaiFont) {
+        const base64 = await loadThaiFontBase64();
+        doc.addFileToVFS(PDF_THAI_FONT_FILE, base64);
+        doc.addFont(PDF_THAI_FONT_FILE, PDF_THAI_FONT_FAMILY, 'normal');
+        doc.addFont(PDF_THAI_FONT_FILE, PDF_THAI_FONT_FAMILY, 'bold');
+    }
+
+    return PDF_THAI_FONT_FAMILY;
+}
+
 function captureRendererImage(renderer) {
     renderer.render(renderer._scene, renderer._camera);
     return renderer.domElement.toDataURL('image/jpeg', 0.92);
+}
+
+function detectDataUrlImageType(dataUrl) {
+    const match = /^data:image\/([a-zA-Z0-9+.-]+);base64,/.exec(dataUrl || '');
+    const subtype = (match?.[1] || '').toLowerCase();
+    if (subtype === 'png') return 'PNG';
+    if (subtype === 'webp') return 'WEBP';
+    return 'JPEG';
+}
+
+function getImageDimensions(dataUrl) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+            resolve({
+                width: img.naturalWidth || img.width,
+                height: img.naturalHeight || img.height
+            });
+        };
+        img.onerror = () => reject(new Error('ไม่สามารถอ่านขนาดรูปสำหรับ PDF ได้'));
+        img.src = dataUrl;
+    });
 }
 
 /**
@@ -53,14 +120,23 @@ function captureRendererImage(renderer) {
 export async function generateQuotationPDF(params) {
     const jsPDF = await loadJsPDF();
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    let fontFamily = 'Helvetica';
+    try {
+        fontFamily = await ensurePdfThaiFont(doc);
+    } catch (err) {
+        console.warn('ใช้ฟอนต์ไทยใน PDF ไม่สำเร็จ, fallback เป็น Helvetica:', err);
+    }
+
+    const setDocFont = (style = 'normal') => {
+        doc.setFont(fontFamily, style);
+    };
 
     const pageW = doc.internal.pageSize.getWidth();
     const margin = 18;
     const contentW = pageW - margin * 2;
     let y = margin;
 
-    // --- Thai font fallback: use Helvetica (built-in), Thai chars render as available glyphs ---
-    doc.setFont('Helvetica');
+    setDocFont('normal');
 
     // === Header ===
     doc.setFillColor(180, 138, 61); // brand gold
@@ -80,32 +156,45 @@ export async function generateQuotationPDF(params) {
 
     // === Customer / Project Info ===
     doc.setFontSize(11);
-    doc.setFont('Helvetica', 'bold');
+    setDocFont('bold');
     doc.text('Customer:', margin, y);
-    doc.setFont('Helvetica', 'normal');
+    setDocFont('normal');
     doc.text(params.customerName || '-', margin + 28, y);
     y += 7;
-    doc.setFont('Helvetica', 'bold');
+    setDocFont('bold');
     doc.text('Project:', margin, y);
-    doc.setFont('Helvetica', 'normal');
+    setDocFont('normal');
     doc.text(params.projectName || '-', margin + 28, y);
     y += 12;
 
     // === Room Image ===
     if (params.roomImageDataUrl) {
-        const imgW = contentW;
-        const imgH = imgW * 0.55; // ~16:9 aspect
-        doc.addImage(params.roomImageDataUrl, 'JPEG', margin, y, imgW, imgH);
+        const { width: rawW, height: rawH } = await getImageDimensions(params.roomImageDataUrl);
+        const imageType = detectDataUrlImageType(params.roomImageDataUrl);
+        const safeRatio = rawW > 0 && rawH > 0 ? (rawH / rawW) : 0.55;
+
+        let imgW = contentW;
+        let imgH = imgW * safeRatio;
+        const maxImageHeight = 120;
+
+        if (imgH > maxImageHeight) {
+            imgH = maxImageHeight;
+            imgW = imgH / safeRatio;
+        }
+
+        const imgX = margin + (contentW - imgW) / 2;
+
+        doc.addImage(params.roomImageDataUrl, imageType, imgX, y, imgW, imgH);
         // border
         doc.setDrawColor(200, 200, 200);
         doc.setLineWidth(0.3);
-        doc.rect(margin, y, imgW, imgH, 'S');
+        doc.rect(imgX, y, imgW, imgH, 'S');
         y += imgH + 8;
     }
 
     // === Room Spec Summary ===
     doc.setFontSize(12);
-    doc.setFont('Helvetica', 'bold');
+    setDocFont('bold');
     doc.text('Room Specification', margin, y);
     y += 7;
 
@@ -117,11 +206,11 @@ export async function generateQuotationPDF(params) {
     ];
 
     doc.setFontSize(10);
-    doc.setFont('Helvetica', 'normal');
+    setDocFont('normal');
     specRows.forEach(([label, value]) => {
-        doc.setFont('Helvetica', 'bold');
+        setDocFont('bold');
         doc.text(label, margin + 2, y);
-        doc.setFont('Helvetica', 'normal');
+        setDocFont('normal');
         doc.text(value, margin + 50, y);
         y += 6;
     });
@@ -143,7 +232,7 @@ export async function generateQuotationPDF(params) {
 
     const cols = [margin + 2, margin + 70, margin + 100, margin + 130];
     doc.setFontSize(10);
-    doc.setFont('Helvetica', 'bold');
+    setDocFont('bold');
     doc.setTextColor(80, 75, 65);
     const headerY = y + 6.5;
     doc.text('Item', cols[0], headerY);
@@ -153,7 +242,7 @@ export async function generateQuotationPDF(params) {
     y += 9;
 
     // Row 1: Tiles
-    doc.setFont('Helvetica', 'normal');
+    setDocFont('normal');
     doc.setTextColor(28, 26, 23);
     doc.setDrawColor(230, 226, 218);
     doc.setLineWidth(0.2);
@@ -181,7 +270,7 @@ export async function generateQuotationPDF(params) {
     doc.setDrawColor(232, 216, 178);
     doc.setLineWidth(0.4);
     doc.rect(margin, y, contentW, 11, 'S');
-    doc.setFont('Helvetica', 'bold');
+    setDocFont('bold');
     doc.setFontSize(12);
     const totalY = y + 8;
     doc.text('TOTAL', cols[0], totalY);
@@ -190,7 +279,7 @@ export async function generateQuotationPDF(params) {
 
     // === Footer ===
     doc.setFontSize(8);
-    doc.setFont('Helvetica', 'normal');
+    setDocFont('normal');
     doc.setTextColor(140, 135, 125);
     doc.text('Generated by 69 PM Floor Planner', margin, 285);
     doc.text(dateStr, pageW - margin, 285, { align: 'right' });
