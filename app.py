@@ -1,18 +1,64 @@
 import base64
+import io
 import os
 from pathlib import Path
 
 import requests
 from flask import Flask, jsonify, request, send_from_directory
+from PIL import Image, ImageOps, UnidentifiedImageError
+from pillow_heif import register_heif_opener
 
 app = Flask(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 app.config["MAX_CONTENT_LENGTH"] = 15 * 1024 * 1024
 
+register_heif_opener()
+
 
 def _bytes_to_data_url(data: bytes, mime_type: str) -> str:
     encoded = base64.b64encode(data).decode("utf-8")
     return f"data:{mime_type};base64,{encoded}"
+
+
+def _normalize_upload_image(image_bytes: bytes, mimetype: str | None, filename: str | None) -> tuple[bytes, str]:
+    allowed_mimes = {"image/jpeg", "image/jpg", "image/png"}
+    ext = Path(filename or "").suffix.lower().lstrip(".")
+    raw_mime = (mimetype or "").strip().lower()
+    safe_filename = filename or "unknown"
+
+    if raw_mime in allowed_mimes:
+        app.logger.info("[image-edit] using uploaded image as-is (filename=%s, mimetype=%s)", safe_filename, raw_mime)
+        return image_bytes, "image/png" if raw_mime == "image/png" else "image/jpeg"
+
+    if ext in {"jpg", "jpeg", "png"}:
+        app.logger.info("[image-edit] using uploaded image as-is (filename=%s, ext=%s)", safe_filename, ext)
+        return image_bytes, "image/png" if ext == "png" else "image/jpeg"
+
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            img = ImageOps.exif_transpose(img)
+
+            if img.mode not in ("RGB", "L"):
+                base = Image.new("RGB", img.size, "white")
+                alpha_img = img.convert("RGBA")
+                base.paste(alpha_img, mask=alpha_img.getchannel("A"))
+                rgb_img = base
+            else:
+                rgb_img = img.convert("RGB")
+
+            out = io.BytesIO()
+            rgb_img.save(out, format="JPEG", quality=95, optimize=True)
+            app.logger.info(
+                "[image-edit] converted uploaded image to JPEG (filename=%s, mimetype=%s, ext=%s)",
+                safe_filename,
+                raw_mime or "unknown",
+                ext or "unknown",
+            )
+            return out.getvalue(), "image/jpeg"
+    except UnidentifiedImageError as exc:
+        raise ValueError("Unsupported image format. Please upload a valid image file.") from exc
+    except Exception as exc:
+        raise ValueError("Failed to process uploaded image.") from exc
 
 
 def _extract_image_data_url(openrouter_result: dict) -> str | None:
@@ -69,7 +115,11 @@ def image_edit():
     if not room_bytes:
         return jsonify({"error": "Uploaded room image is empty"}), 400
 
-    room_mime = room_image.mimetype if room_image.mimetype and room_image.mimetype.startswith("image/") else "image/jpeg"
+    try:
+        room_bytes, room_mime = _normalize_upload_image(room_bytes, room_image.mimetype, room_image.filename)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
     room_data_url = _bytes_to_data_url(room_bytes, room_mime)
 
     tile_reference_data_url = (request.form.get("tile_reference_data_url") or "").strip()
