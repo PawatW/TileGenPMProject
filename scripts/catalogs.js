@@ -3,9 +3,9 @@ export const tilePatternList = [
     { key: 'checker', label: 'ตารางสลับ', type: 'canvas' },
     { key: 'diagonal', label: 'เส้นเฉียง', type: 'canvas' },
     { key: 'terrazzo', label: 'เทอราซโซ', type: 'canvas' },
-    { key: 'real1', label: 'ภาพจริง 1', type: 'image', url: './floor-1.jpeg' },
-    { key: 'real2', label: 'ภาพจริง 2', type: 'image', url: './floor-2.jpeg' },
-    { key: 'real3', label: 'ภาพจริง 3', type: 'image', url: './floor-3.jpeg' }
+    { key: 'real1', label: 'ภาพจริง 1', type: 'image', url: './assets/images/tiles/floor-1.jpeg' },
+    { key: 'real2', label: 'ภาพจริง 2', type: 'image', url: './assets/images/tiles/floor-2.jpeg' },
+    { key: 'real3', label: 'ภาพจริง 3', type: 'image', url: './assets/images/tiles/floor-3.jpeg' }
 ];
 
 export function createWallTextureList(canvases) {
@@ -15,8 +15,8 @@ export function createWallTextureList(canvases) {
         { key: 'plaster', label: 'ปูนฉาบ', type: 'canvas', canvas: canvases.plaster, options: { bumpScale: 0.03, roughness: 0.9 } },
         { key: 'concrete', label: 'คอนกรีต', type: 'canvas', canvas: canvases.concrete, options: { bumpScale: 0.04, roughness: 0.95 } },
         { key: 'walltile', label: 'กระเบื้องผนัง', type: 'canvas', canvas: canvases.walltile, options: { bumpScale: 0.02, roughness: 0.5 } },
-        { key: 'wallreal1', label: 'ภาพจริง 1', type: 'image', url: './wall-1.jpeg', repeatX: 2, repeatYPerMeter: 1 },
-        { key: 'wallreal2', label: 'ภาพจริง 2', type: 'image', url: './wall-2.jpeg', repeatX: 2, repeatYPerMeter: 1 }
+        { key: 'wallreal1', label: 'ภาพจริง 1', type: 'image', url: './assets/images/walls/wall-1.jpeg', repeatX: 2, repeatYPerMeter: 1 },
+        { key: 'wallreal2', label: 'ภาพจริง 2', type: 'image', url: './assets/images/walls/wall-2.jpeg', repeatX: 2, repeatYPerMeter: 1 }
     ];
 }
 
