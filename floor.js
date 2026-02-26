@@ -43,6 +43,17 @@ const draftToolbar = document.getElementById('draft-toolbar');
 const undoBtn = document.getElementById('undoBtn');
 const redoBtn = document.getElementById('redoBtn');
 const topBarToggleBtn = document.getElementById('topBarToggleBtn');
+const realImageOpenBtn = document.getElementById('realImageOpenBtn');
+const realImageModal = document.getElementById('realImageModal');
+const realImageModalCloseBtn = document.getElementById('realImageModalCloseBtn');
+const realModalImageInput = document.getElementById('realModalImageInput');
+const realModalStatus = document.getElementById('realModalStatus');
+const realModalPreviewWrap = document.getElementById('realModalPreviewWrap');
+const realModalPreviewImage = document.getElementById('realModalPreviewImage');
+const realModalPreviewPlaceholder = document.getElementById('realModalPreviewPlaceholder');
+const realModalDownloadBtn = document.getElementById('realModalDownloadBtn');
+let realImageProcessing = false;
+let realGeneratedImageDataUrl = null;
 
 // --- Draft State Helpers ---
 
@@ -728,6 +739,205 @@ function formatCurrency(value) {
     return formatter.format(value);
 }
 
+function setRealModalStatus(message, isError = false) {
+    if (!realModalStatus) return;
+    realModalStatus.textContent = message;
+    realModalStatus.classList.toggle('is-error', isError);
+    realModalStatus.classList.remove('is-loading');
+}
+
+function setRealModalLoadingStatus() {
+    if (!realModalStatus) return;
+    realModalStatus.textContent = 'กำลังประมวลผล...';
+    realModalStatus.classList.remove('is-error');
+    realModalStatus.classList.add('is-loading');
+}
+
+function resetRealModalPreview() {
+    if (realModalPreviewImage) {
+        realModalPreviewImage.removeAttribute('src');
+        realModalPreviewImage.hidden = true;
+    }
+    if (realModalPreviewWrap) {
+        realModalPreviewWrap.hidden = false;
+    }
+    if (realModalPreviewPlaceholder) {
+        realModalPreviewPlaceholder.hidden = false;
+    }
+    realGeneratedImageDataUrl = null;
+    if (realModalDownloadBtn) {
+        realModalDownloadBtn.hidden = true;
+    }
+}
+
+function setRealModalBusyState(isBusy) {
+    realImageProcessing = isBusy;
+    if (realModalImageInput) realModalImageInput.disabled = isBusy;
+    if (realImageOpenBtn) realImageOpenBtn.disabled = isBusy;
+}
+
+function openRealImageModal() {
+    if (!realImageModal) return;
+    realImageModal.classList.add('is-open');
+    realImageModal.setAttribute('aria-hidden', 'false');
+    setRealModalStatus('');
+    resetRealModalPreview();
+    if (realModalImageInput) {
+        realModalImageInput.value = '';
+        realModalImageInput.disabled = false;
+    }
+    realImageProcessing = false;
+}
+
+function closeRealImageModal() {
+    if (!realImageModal) return;
+    if (realImageProcessing) return;
+    realImageModal.classList.remove('is-open');
+    realImageModal.setAttribute('aria-hidden', 'true');
+}
+
+function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('ไม่สามารถอ่านข้อมูลรูปภาพได้'));
+        reader.readAsDataURL(blob);
+    });
+}
+
+async function assetImageToDataUrl(url) {
+    const response = await fetch(resolveAssetUrl(url));
+    if (!response.ok) {
+        throw new Error('โหลดภาพอ้างอิงไม่สำเร็จ');
+    }
+    const blob = await response.blob();
+    const dataUrl = await blobToDataUrl(blob);
+    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+        throw new Error('ข้อมูลภาพอ้างอิงไม่ถูกต้อง');
+    }
+    return dataUrl;
+}
+
+function solidColorToDataUrl(color) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    const hex = `#${(Number(color) || 0).toString(16).padStart(6, '0')}`;
+    ctx.fillStyle = hex;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/png');
+}
+
+async function getTileReferenceDataUrl() {
+    const tileMeta = tilePatternList.find(item => item.key === tilePattern);
+    if (!tileMeta) throw new Error('ไม่พบลายกระเบื้องที่เลือก');
+
+    if (tileMeta.type === 'canvas') {
+        const canvas = tileTextureCanvases[tileMeta.key];
+        if (!canvas) throw new Error('ไม่พบภาพลายกระเบื้อง');
+        return canvas.toDataURL('image/png');
+    }
+
+    if (tileMeta.type === 'image' && tileMeta.url) {
+        return assetImageToDataUrl(tileMeta.url);
+    }
+
+    throw new Error('ลายกระเบื้องที่เลือกยังไม่รองรับ');
+}
+
+async function getWallReferenceDataUrl() {
+    const wallMeta = wallTextureList.find(item => item.key === wallPattern);
+    if (!wallMeta) throw new Error('ไม่พบพื้นผิวกำแพงที่เลือก');
+
+    if (wallMeta.type === 'canvas' && wallMeta.canvas) {
+        return wallMeta.canvas.toDataURL('image/png');
+    }
+
+    if (wallMeta.type === 'image' && wallMeta.url) {
+        return assetImageToDataUrl(wallMeta.url);
+    }
+
+    if (wallMeta.type === 'solid') {
+        return solidColorToDataUrl(wallMeta.color);
+    }
+
+    throw new Error('พื้นผิวกำแพงที่เลือกยังไม่รองรับ');
+}
+
+async function testRealImageWithOpenRouter(roomImage) {
+    if (!roomImage || !roomImage.type?.startsWith('image/')) {
+        setRealModalStatus('กรุณาเลือกไฟล์รูปภาพที่ถูกต้อง', true);
+        return;
+    }
+
+    setRealModalBusyState(true);
+    const tileMeta = tilePatternList.find(item => item.key === tilePattern);
+    const wallMeta = wallTextureList.find(item => item.key === wallPattern);
+    setRealModalLoadingStatus();
+
+    try {
+        const previewDataUrl = await blobToDataUrl(roomImage);
+        if (typeof previewDataUrl !== 'string' || !previewDataUrl.startsWith('data:image/')) {
+            throw new Error('ไม่สามารถอ่านรูปห้องที่อัปโหลดได้');
+        }
+
+        if (realModalPreviewImage) {
+            realModalPreviewImage.src = previewDataUrl;
+            realModalPreviewImage.hidden = false;
+        }
+        if (realModalPreviewPlaceholder) {
+            realModalPreviewPlaceholder.hidden = true;
+        }
+
+        const [tileReferenceDataUrl, wallReferenceDataUrl] = await Promise.all([
+            getTileReferenceDataUrl(),
+            getWallReferenceDataUrl()
+        ]);
+
+        const formData = new FormData();
+        formData.append('room_image', roomImage);
+        formData.append('tile_reference_data_url', tileReferenceDataUrl);
+        formData.append('wall_reference_data_url', wallReferenceDataUrl);
+        formData.append('tile_pattern_label', tileMeta?.label || tilePattern);
+        formData.append('wall_pattern_label', wallMeta?.label || wallPattern);
+
+        const response = await fetch('/api/image-edit', {
+            method: 'POST',
+            body: formData
+        });
+
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            const message = typeof result?.error === 'string' ? result.error : 'ไม่สามารถประมวลผลภาพได้';
+            throw new Error(message);
+        }
+
+        const outputImage = result?.output_image_data_url;
+        if (typeof outputImage !== 'string' || !outputImage.startsWith('data:image/')) {
+            throw new Error('ไม่ได้รับรูปภาพผลลัพธ์จาก OpenRouter');
+        }
+
+        if (realModalPreviewImage) {
+            realModalPreviewImage.src = outputImage;
+        }
+        realGeneratedImageDataUrl = outputImage;
+        if (realModalDownloadBtn) {
+            realModalDownloadBtn.hidden = false;
+        }
+        setRealModalStatus('');
+    } catch (error) {
+        realGeneratedImageDataUrl = null;
+        if (realModalDownloadBtn) {
+            realModalDownloadBtn.hidden = true;
+        }
+        const message = error instanceof Error ? error.message : 'เกิดข้อผิดพลาดระหว่างประมวลผลภาพ';
+        setRealModalStatus(message, true);
+    } finally {
+        setRealModalBusyState(false);
+    }
+}
+
 function updatePriceSummary() {
     const input = document.getElementById('tilePriceInput');
     const tileCountEl = document.getElementById('tileCountVal');
@@ -1046,8 +1256,60 @@ if (tilePriceInput) {
     });
 }
 
+if (realImageOpenBtn) {
+    realImageOpenBtn.addEventListener('click', openRealImageModal);
+}
+
+if (realImageModalCloseBtn) {
+    realImageModalCloseBtn.addEventListener('click', closeRealImageModal);
+}
+
+if (realImageModal) {
+    realImageModal.addEventListener('click', (event) => {
+        if (event.target === realImageModal) {
+            closeRealImageModal();
+        }
+    });
+}
+
+if (realModalImageInput) {
+    realModalImageInput.addEventListener('change', () => {
+        const roomImage = realModalImageInput.files?.[0];
+        if (!roomImage) {
+            setRealModalStatus('');
+            resetRealModalPreview();
+            return;
+        }
+        testRealImageWithOpenRouter(roomImage);
+    });
+}
+
+if (realModalDownloadBtn) {
+    realModalDownloadBtn.addEventListener('click', (event) => {
+        if (!realGeneratedImageDataUrl || !realGeneratedImageDataUrl.startsWith('data:image/')) {
+            event.preventDefault();
+            return;
+        }
+
+        const tempLink = document.createElement('a');
+        tempLink.href = realGeneratedImageDataUrl;
+        tempLink.download = 'room-ai-result.png';
+        document.body.appendChild(tempLink);
+        tempLink.click();
+        tempLink.remove();
+    });
+}
+
 setTopBarCollapsed(false);
 updateHistoryButtons();
+setRealModalStatus('');
+resetRealModalPreview();
+
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+        closeRealImageModal();
+    }
+});
 
 renderWallTextureOptions();
 renderWallSwatches();

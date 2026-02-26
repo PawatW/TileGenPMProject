@@ -198,11 +198,40 @@
             <p class="hint status-note" id="quotationStatus"></p>
         </div>
 
+        <div class="panel-section">
+            <div class="section-header">
+                <span class="section-tag accent-green">AI</span>
+                <h3 class="section-title">ทดสอบกับรูปจริง</h3>
+            </div>
+            <p class="hint">เลือกรูป</p>
+            <button id="realImageOpenBtn" class="btn-export">ทดสอบกับรูปจริง</button>
+        </div>
+
         <!-- Bottom brand -->
         <div class="right-footer">
             <span>Studio PM &copy; 2026</span>
         </div>
 
+    </div>
+
+    <div id="realImageModal" class="real-image-modal" aria-hidden="true">
+        <div class="real-image-modal-card" role="dialog" aria-modal="true" aria-labelledby="realImageModalTitle">
+            <button id="realImageModalCloseBtn" class="real-image-close-btn" type="button" aria-label="ปิดหน้าต่าง">✕</button>
+            <h3 id="realImageModalTitle" class="section-title">ทดสอบกับรูปจริง</h3>
+            <p class="hint">เลือกรูปห้องของลูกค้า</p>
+
+            <div class="field">
+                <label>เลือกรูปห้อง</label>
+                <input type="file" id="realModalImageInput" accept="image/*">
+            </div>
+            <p class="hint status-note" id="realModalStatus"></p>
+
+            <div id="realModalPreviewWrap" class="real-compare">
+                <div id="realModalPreviewPlaceholder" class="real-modal-preview-placeholder">กรุณาเลือกรูปภาพ</div>
+                <img id="realModalPreviewImage" alt="" class="real-modal-preview-image" hidden>
+            </div>
+            <button id="realModalDownloadBtn" class="btn-ghost" type="button" hidden>ดาวน์โหลดรูปภาพ</button>
+        </div>
     </div>
 
     <script type="importmap">

@@ -1,8 +1,142 @@
+import base64
+import os
 from pathlib import Path
-from flask import Flask, send_from_directory
+
+import requests
+from flask import Flask, jsonify, request, send_from_directory
 
 app = Flask(__name__)
 BASE_DIR = Path(__file__).resolve().parent
+app.config["MAX_CONTENT_LENGTH"] = 15 * 1024 * 1024
+
+
+def _bytes_to_data_url(data: bytes, mime_type: str) -> str:
+    encoded = base64.b64encode(data).decode("utf-8")
+    return f"data:{mime_type};base64,{encoded}"
+
+
+def _extract_image_data_url(openrouter_result: dict) -> str | None:
+    choices = openrouter_result.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return None
+
+    message = choices[0].get("message")
+    if not isinstance(message, dict):
+        return None
+
+    images = message.get("images")
+    if isinstance(images, list):
+        for image_item in images:
+            image_url = image_item.get("image_url") if isinstance(image_item, dict) else None
+            if isinstance(image_url, dict):
+                candidate = image_url.get("url")
+                if isinstance(candidate, str) and candidate.startswith("data:image/"):
+                    return candidate
+            elif isinstance(image_url, str) and image_url.startswith("data:image/"):
+                return image_url
+
+    content = message.get("content")
+    if isinstance(content, str) and content.startswith("data:image/"):
+        return content
+
+    if isinstance(content, list):
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+
+            image_url = part.get("image_url")
+            if isinstance(image_url, dict):
+                candidate = image_url.get("url")
+                if isinstance(candidate, str) and candidate.startswith("data:image/"):
+                    return candidate
+            elif isinstance(image_url, str) and image_url.startswith("data:image/"):
+                return image_url
+
+    return None
+
+
+@app.post("/api/image-edit")
+def image_edit():
+    api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    if not api_key:
+        return jsonify({"error": "Missing OPENROUTER_API_KEY on server"}), 500
+
+    room_image = request.files.get("room_image")
+    if room_image is None or not room_image.filename:
+        return jsonify({"error": "Please upload a room image"}), 400
+
+    room_bytes = room_image.read()
+    if not room_bytes:
+        return jsonify({"error": "Uploaded room image is empty"}), 400
+
+    room_mime = room_image.mimetype if room_image.mimetype and room_image.mimetype.startswith("image/") else "image/jpeg"
+    room_data_url = _bytes_to_data_url(room_bytes, room_mime)
+
+    tile_reference_data_url = (request.form.get("tile_reference_data_url") or "").strip()
+    wall_reference_data_url = (request.form.get("wall_reference_data_url") or "").strip()
+    if not tile_reference_data_url.startswith("data:image/"):
+        return jsonify({"error": "Tile reference image is invalid"}), 400
+    if not wall_reference_data_url.startswith("data:image/"):
+        return jsonify({"error": "Wall reference image is invalid"}), 400
+
+    tile_pattern_label = (request.form.get("tile_pattern_label") or "tile").strip()
+    wall_pattern_label = (request.form.get("wall_pattern_label") or "wall").strip()
+    model_name = os.getenv("OPENROUTER_IMAGE_MODEL", "google/gemini-2.5-flash-image").strip()
+
+    prompt = (
+        "คุณจะได้รับรูปภาพ 3 รูป: (1) ห้องเดิมของลูกค้า (2) ลายกระเบื้องพื้นที่ต้องใช้ "
+        "(3) ลาย/สีผนังที่ต้องใช้\n"
+        f"งานที่ต้องทำ: แก้ไขเฉพาะรูปห้องเดิมให้พื้นเป็นลายจากรูปที่ 2 ({tile_pattern_label}) "
+        f"และผนังทั้งหมดเป็นลายจากรูปที่ 3 ({wall_pattern_label}) โดยคงโครงสร้างห้องและมุมกล้องเดิม"
+    )
+
+    payload = {
+        "model": model_name,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": room_data_url}},
+                    {"type": "image_url", "image_url": {"url": tile_reference_data_url}},
+                    {"type": "image_url", "image_url": {"url": wall_reference_data_url}},
+                ],
+            }
+        ],
+        "modalities": ["image", "text"],
+    }
+
+    try:
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=180,
+        )
+    except requests.RequestException as exc:
+        return jsonify({"error": "Failed to call OpenRouter", "details": str(exc)}), 502
+
+    if not response.ok:
+        details = None
+        try:
+            details = response.json()
+        except ValueError:
+            details = response.text
+        return jsonify({"error": "OpenRouter request failed", "details": details}), 502
+
+    try:
+        result = response.json()
+    except ValueError:
+        return jsonify({"error": "OpenRouter returned non-JSON response"}), 502
+
+    output_image_data_url = _extract_image_data_url(result)
+    if not output_image_data_url:
+        return jsonify({"error": "OpenRouter response did not include an image", "details": result}), 502
+
+    return jsonify({"output_image_data_url": output_image_data_url})
 
 
 @app.route("/")
