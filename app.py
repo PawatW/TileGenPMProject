@@ -20,6 +20,32 @@ def _bytes_to_data_url(data: bytes, mime_type: str) -> str:
     return f"data:{mime_type};base64,{encoded}"
 
 
+def _fix_orientation_if_needed(image_bytes: bytes, target_mime: str) -> tuple[bytes, bool]:
+    with Image.open(io.BytesIO(image_bytes)) as img:
+        exif = img.getexif()
+        orientation = exif.get(274, 1) if exif else 1
+        if orientation == 1:
+            return image_bytes, False
+
+        oriented = ImageOps.exif_transpose(img)
+        out = io.BytesIO()
+
+        if target_mime == "image/png":
+            oriented.save(out, format="PNG", optimize=True)
+            return out.getvalue(), True
+
+        if oriented.mode not in ("RGB", "L"):
+            base = Image.new("RGB", oriented.size, "white")
+            alpha_img = oriented.convert("RGBA")
+            base.paste(alpha_img, mask=alpha_img.getchannel("A"))
+            rgb_img = base
+        else:
+            rgb_img = oriented.convert("RGB")
+
+        rgb_img.save(out, format="JPEG", quality=95, optimize=True)
+        return out.getvalue(), True
+
+
 def _normalize_upload_image(image_bytes: bytes, mimetype: str | None, filename: str | None) -> tuple[bytes, str]:
     allowed_mimes = {"image/jpeg", "image/jpg", "image/png"}
     ext = Path(filename or "").suffix.lower().lstrip(".")
@@ -27,12 +53,30 @@ def _normalize_upload_image(image_bytes: bytes, mimetype: str | None, filename: 
     safe_filename = filename or "unknown"
 
     if raw_mime in allowed_mimes:
-        app.logger.info("[image-edit] using uploaded image as-is (filename=%s, mimetype=%s)", safe_filename, raw_mime)
-        return image_bytes, "image/png" if raw_mime == "image/png" else "image/jpeg"
+        target_mime = "image/png" if raw_mime == "image/png" else "image/jpeg"
+        try:
+            normalized_bytes, rotated = _fix_orientation_if_needed(image_bytes, target_mime)
+        except UnidentifiedImageError as exc:
+            raise ValueError("Unsupported image format. Please upload a valid image file.") from exc
+
+        if rotated:
+            app.logger.info("[image-edit] fixed EXIF orientation (filename=%s, mimetype=%s)", safe_filename, raw_mime)
+        else:
+            app.logger.info("[image-edit] using uploaded image as-is (filename=%s, mimetype=%s)", safe_filename, raw_mime)
+        return normalized_bytes, target_mime
 
     if ext in {"jpg", "jpeg", "png"}:
-        app.logger.info("[image-edit] using uploaded image as-is (filename=%s, ext=%s)", safe_filename, ext)
-        return image_bytes, "image/png" if ext == "png" else "image/jpeg"
+        target_mime = "image/png" if ext == "png" else "image/jpeg"
+        try:
+            normalized_bytes, rotated = _fix_orientation_if_needed(image_bytes, target_mime)
+        except UnidentifiedImageError as exc:
+            raise ValueError("Unsupported image format. Please upload a valid image file.") from exc
+
+        if rotated:
+            app.logger.info("[image-edit] fixed EXIF orientation (filename=%s, ext=%s)", safe_filename, ext)
+        else:
+            app.logger.info("[image-edit] using uploaded image as-is (filename=%s, ext=%s)", safe_filename, ext)
+        return normalized_bytes, target_mime
 
     try:
         with Image.open(io.BytesIO(image_bytes)) as img:
