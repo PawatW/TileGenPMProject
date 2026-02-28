@@ -175,7 +175,7 @@ def image_edit():
 
     tile_pattern_label = (request.form.get("tile_pattern_label") or "tile").strip()
     wall_pattern_label = (request.form.get("wall_pattern_label") or "wall").strip()
-    model_name = os.getenv("OPENROUTER_IMAGE_MODEL", "google/gemini-2.5-flash-image").strip()
+    model_name = os.getenv("OPENROUTER_IMAGE_MODEL", "google/gemini-3.1-flash-image-preview").strip()
 
     prompt = (
         "คุณจะได้รับรูปภาพ 3 รูป: (1) ห้องเดิมของลูกค้า (2) ลายกระเบื้องพื้นที่ต้องใช้ "
