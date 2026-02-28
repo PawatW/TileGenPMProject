@@ -1,11 +1,11 @@
 export const tilePatternList = [
-    { key: 'quarter', label: 'ลายโค้ง', type: 'canvas' },
-    { key: 'checker', label: 'ตารางสลับ', type: 'canvas' },
-    { key: 'diagonal', label: 'เส้นเฉียง', type: 'canvas' },
-    { key: 'terrazzo', label: 'เทอราซโซ', type: 'canvas' },
-    { key: 'real1', label: 'ภาพจริง 1', type: 'image', url: './assets/images/tiles/floor-1.jpeg' },
-    { key: 'real2', label: 'ภาพจริง 2', type: 'image', url: './assets/images/tiles/floor-2.jpeg' },
-    { key: 'real3', label: 'ภาพจริง 3', type: 'image', url: './assets/images/tiles/floor-3.jpeg' }
+    { key: 'quarter', label: 'ลายโค้ง', type: 'canvas', width: 40, length: 40, unit: 'inch', pricePerBox: 150, tilesPerBox: 4 },
+    { key: 'checker', label: 'ตารางสลับ', type: 'canvas', width: 60, length: 60, unit: 'cm', pricePerBox: 150, tilesPerBox: 4 },
+    { key: 'diagonal', label: 'เส้นเฉียง', type: 'canvas', width: 60, length: 60, unit: 'cm', pricePerBox: 150, tilesPerBox: 4 },
+    { key: 'terrazzo', label: 'เทอราซโซ', type: 'canvas', width: 60, length: 60, unit: 'cm', pricePerBox: 150, tilesPerBox: 4 },
+    { key: 'devonoir_graphite', label: 'เดโวนัวร์ กราไฟต์ PM', type: 'image', url: './assets/images/tiles/floor-1.jpeg', width: 18, length: 18, unit: 'inch', pricePerBox: 275.00, tilesPerBox: 6 },
+    { key: 'mosaic_hideaway_alpine', label: 'MT4SR1ไฮด์อเวย์อัลไพน์ เทาอ่อน', type: 'image', url: './assets/images/tiles/floor-2.jpeg', width: 12, length: 12, unit: 'inch', pricePerBox: 1230.00, tilesPerBox: 10 },
+    { key: 'real3', label: 'ภาพจริง 3', type: 'image', url: './assets/images/tiles/floor-3.jpeg', width: 60, length: 60, unit: 'cm', pricePerBox: 150, tilesPerBox: 4 }
 ];
 
 export function createWallTextureList(canvases) {

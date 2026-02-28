@@ -27,7 +27,6 @@ let rotationData = [];
 let tilePattern = 'quarter';
 let wallPattern = 'paint';
 let placementMode = null;
-let tilePrice = 120;
 let wallDeleteMode = false;
 let ignoreNextClick = false;
 let isDraggingFixture = false;
@@ -38,6 +37,16 @@ const historyStack = [];
 let historyIndex = -1;
 let suppressHistoryRecording = false;
 let dragMutatedState = false;
+let pricingSummary = {
+    totalAreaSqm: 0,
+    areaPerTile: 0,
+    rawTilesNeeded: 0,
+    tilesWithWaste: 0,
+    tilesPerBox: 1,
+    boxCount: 0,
+    pricePerBox: 0,
+    totalPrice: 0
+};
 
 const draftToolbar = document.getElementById('draft-toolbar');
 const undoBtn = document.getElementById('undoBtn');
@@ -99,7 +108,6 @@ function serializeDesignState() {
         wallHeight: Number(wallHeight),
         tilePattern,
         wallPattern,
-        tilePrice: Number(tilePrice),
         gridData,
         rotationData,
         removedWalls: Array.from(removedWalls),
@@ -116,7 +124,6 @@ function applyDesignState(state) {
     gridHeight = nextGridHeight;
 
     wallHeight = clampNumber(state.wallHeight, 1, 5, wallHeight);
-    tilePrice = clampNumber(state.tilePrice, 0, 1_000_000, tilePrice);
 
     if (typeof state.tilePattern === 'string') tilePattern = state.tilePattern;
     if (typeof state.wallPattern === 'string') wallPattern = state.wallPattern;
@@ -145,9 +152,6 @@ function applyDesignState(state) {
     const wallHeightLabel = document.getElementById('wallHeightVal');
     if (wallHeightRange) wallHeightRange.value = String(wallHeight);
     if (wallHeightLabel) wallHeightLabel.innerText = String(wallHeight);
-
-    const tilePriceInput = document.getElementById('tilePriceInput');
-    if (tilePriceInput) tilePriceInput.value = String(tilePrice);
 
     const wallDeleteToggle = document.getElementById('wallDeleteToggle');
     if (wallDeleteToggle) wallDeleteToggle.checked = false;
@@ -732,6 +736,44 @@ function countActiveTiles() {
     return count;
 }
 
+function getTileMetaByKey(patternKey = tilePattern) {
+    return tilePatternList.find((item) => item.key === patternKey) || tilePatternList[0] || null;
+}
+
+function getTileSizeInMeters(tileMeta) {
+    const w = tileMeta?.width || 60;
+    const l = tileMeta?.length || 60;
+    const unit = tileMeta?.unit || 'cm';
+    if (unit === 'inch') {
+        return { widthM: w * 0.0254, lengthM: l * 0.0254 };
+    }
+    return { widthM: w / 100, lengthM: l / 100 };
+}
+
+function calculatePricingSummary() {
+    const totalAreaSqm = countActiveTiles();
+    const tileMeta = getTileMetaByKey(tilePattern);
+    const { widthM, lengthM } = getTileSizeInMeters(tileMeta);
+    const areaPerTile = Math.max(widthM * lengthM, 0.0001);
+    const rawTilesNeeded = totalAreaSqm > 0 ? totalAreaSqm / areaPerTile : 0;
+    const tilesWithWaste = totalAreaSqm > 0 ? Math.ceil(rawTilesNeeded * 1.05) : 0;
+    const tilesPerBox = Math.max(1, Math.ceil(Number(tileMeta?.tilesPerBox) || 1));
+    const pricePerBox = Math.max(0, Number(tileMeta?.pricePerBox) || 0);
+    const boxCount = tilesWithWaste > 0 ? Math.ceil(tilesWithWaste / tilesPerBox) : 0;
+    const totalPrice = boxCount * pricePerBox;
+
+    return {
+        totalAreaSqm,
+        areaPerTile,
+        rawTilesNeeded,
+        tilesWithWaste,
+        tilesPerBox,
+        boxCount,
+        pricePerBox,
+        totalPrice
+    };
+}
+
 function formatCurrency(value) {
     const formatter = new Intl.NumberFormat('th-TH', {
         maximumFractionDigits: 0
@@ -939,18 +981,19 @@ async function testRealImageWithOpenRouter(roomImage) {
 }
 
 function updatePriceSummary() {
-    const input = document.getElementById('tilePriceInput');
-    const tileCountEl = document.getElementById('tileCountVal');
-    const unitPriceEl = document.getElementById('tileUnitPriceVal');
+    const totalAreaEl = document.getElementById('totalAreaVal');
+    const tileTotalCountEl = document.getElementById('tileTotalCountVal');
+    const boxCountEl = document.getElementById('boxCountVal');
     const totalPriceEl = document.getElementById('tileTotalPriceVal');
 
-    tilePrice = parseFloat(input?.value ?? tilePrice) || 0;
-    const tileCount = countActiveTiles();
-    const total = tileCount * tilePrice;
+    pricingSummary = calculatePricingSummary();
 
-    if (tileCountEl) tileCountEl.textContent = tileCount.toString();
-    if (unitPriceEl) unitPriceEl.textContent = formatCurrency(tilePrice);
-    if (totalPriceEl) totalPriceEl.textContent = formatCurrency(total);
+    if (totalAreaEl) totalAreaEl.textContent = pricingSummary.totalAreaSqm.toString();
+    if (tileTotalCountEl) tileTotalCountEl.textContent = pricingSummary.tilesWithWaste.toString();
+    if (boxCountEl) boxCountEl.textContent = pricingSummary.boxCount.toString();
+    if (totalPriceEl) totalPriceEl.textContent = `฿ ${formatCurrency(pricingSummary.totalPrice)}`;
+
+    return pricingSummary;
 }
 
 window.updatePriceSummary = updatePriceSummary;
@@ -962,6 +1005,9 @@ function build3D() {
         roomGroup.remove(roomGroup.children[0]); 
     }
 
+    const tileMeta = getTileMetaByKey(tilePattern);
+    const { widthM, lengthM } = getTileSizeInMeters(tileMeta);
+
     // คำนวณ Offset ให้ห้องอยู่ตรงกลางโลก
     const offsetX = (gridWidth * 1) / 2 - 0.5;
     const offsetZ = (gridHeight * 1) / 2 - 0.5;
@@ -972,7 +1018,23 @@ function build3D() {
             if (gridData[x][y] === 0) continue; // ถ้าช่องนี้ไม่มีพื้น ข้ามไป
 
             // 1. สร้างพื้น (Tile)
-            const tile = new THREE.Mesh(tileGeometry, new THREE.MeshStandardMaterial({ map: tileTextures[tilePattern] }));
+            const baseTexture = tileTextures[tilePattern] || tileTextures[tileMeta?.key || ''];
+            let tileMaterial;
+
+            if (baseTexture) {
+                const clonedTexture = baseTexture.clone();
+                clonedTexture.wrapS = clonedTexture.wrapT = THREE.RepeatWrapping;
+                clonedTexture.repeat.set(
+                    widthM > 0 ? 1 / widthM : 1,
+                    lengthM > 0 ? 1 / lengthM : 1
+                );
+                clonedTexture.needsUpdate = true;
+                tileMaterial = new THREE.MeshStandardMaterial({ map: clonedTexture });
+            } else {
+                tileMaterial = new THREE.MeshStandardMaterial({ color: 0xe5e5e5 });
+            }
+
+            const tile = new THREE.Mesh(tileGeometry, tileMaterial);
             tile.rotation.x = -Math.PI / 2; // นอนราบ
             tile.rotation.z = - (rotationData[x][y] * Math.PI / 2); // หมุนตามค่าที่เก็บไว้
             tile.position.set(x - offsetX, 0, y - offsetZ);
@@ -1248,14 +1310,6 @@ if (wallHeightInput) {
     });
 }
 
-const tilePriceInput = document.getElementById('tilePriceInput');
-if (tilePriceInput) {
-    tilePriceInput.addEventListener('change', () => {
-        updatePriceSummary();
-        recordHistorySnapshot();
-    });
-}
-
 if (realImageOpenBtn) {
     realImageOpenBtn.addEventListener('click', openRealImageModal);
 }
@@ -1328,12 +1382,23 @@ renderer._scene = scene;
 renderer._camera = camera;
 initQuotationUI({
     getDesignInfo: () => {
-        const tileCount = countActiveTiles();
-        const tileMeta = tilePatternList.find(p => p.key === tilePattern);
+        const tileMeta = getTileMetaByKey(tilePattern);
         const wallMeta = wallTextureList.find(w => w.key === wallPattern);
+        const summary = updatePriceSummary();
+        const tilePriceForLegacy = summary.tilesWithWaste > 0
+            ? summary.totalPrice / summary.tilesWithWaste
+            : 0;
+
         return {
-            tileCount,
-            tilePrice,
+            tileCount: summary.tilesWithWaste,
+            tilePrice: tilePriceForLegacy,
+            totalAreaSqm: summary.totalAreaSqm,
+            rawTilesNeeded: summary.rawTilesNeeded,
+            tilesWithWaste: summary.tilesWithWaste,
+            tilesPerBox: summary.tilesPerBox,
+            boxCount: summary.boxCount,
+            pricePerBox: summary.pricePerBox,
+            totalPrice: summary.totalPrice,
             tilePatternLabel: tileMeta?.label || tilePattern,
             wallPatternLabel: wallMeta?.label || wallPattern,
             gridWidth,

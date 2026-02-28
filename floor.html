@@ -33,11 +33,11 @@
             </div>
             <div class="two-col">
                 <div class="field">
-                    <label>กว้าง (X)</label>
+                    <label>กว้าง (X) (เมตร)</label>
                     <input type="number" id="gridW" value="4" min="2" max="10">
                 </div>
                 <div class="field">
-                    <label>ลึก (Y)</label>
+                    <label>ลึก (Y) (เมตร)</label>
                     <input type="number" id="gridH" value="4" min="2" max="10">
                 </div>
             </div>
@@ -140,20 +140,20 @@
                 <h3 class="section-title">คำนวณราคา</h3>
             </div>
 
-            <div class="field">
-                <label>ราคาต่อแผ่น (บาท)</label>
-                <input type="number" id="tilePriceInput" value="120" min="1" oninput="updatePriceSummary()">
-            </div>
-
             <div class="stat-card">
                 <div class="stat-row">
-                    <span class="stat-label">จำนวนแผ่น</span>
-                    <span class="stat-value" id="tileCountVal">0</span>
+                    <span class="stat-label">พื้นที่ปูจริง</span>
+                    <span class="stat-value"><span id="totalAreaVal">0</span> ตร.ม.</span>
                 </div>
                 <div class="stat-divider"></div>
                 <div class="stat-row">
-                    <span class="stat-label">ราคา / แผ่น</span>
-                    <span class="stat-value" id="tileUnitPriceVal">0</span>
+                    <span class="stat-label">จำนวนกระเบื้อง <br><small>(เผื่อเศษ 5%)</small></span>
+                    <span class="stat-value"><span id="tileTotalCountVal">0</span> แผ่น</span>
+                </div>
+                <div class="stat-divider"></div>
+                <div class="stat-row">
+                    <span class="stat-label">จำนวนที่ต้องซื้อ</span>
+                    <span class="stat-value"><span id="boxCountVal">0</span> กล่อง</span>
                 </div>
             </div>
 
