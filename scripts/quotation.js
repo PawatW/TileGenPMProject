@@ -34,6 +34,12 @@ function formatCurrency(value) {
     return new Intl.NumberFormat('th-TH', { maximumFractionDigits: 0 }).format(value);
 }
 
+function sanitizeTilesPerBox(value, fallback = 1) {
+    const n = Number.parseInt(value, 10);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(1, Math.min(100, n));
+}
+
 function arrayBufferToBase64(arrayBuffer) {
     const bytes = new Uint8Array(arrayBuffer);
     const chunkSize = 0x8000;
@@ -217,11 +223,17 @@ export async function generateQuotationPDF(params) {
     y += 4;
 
     // === Cost Table ===
-    const tileCount = params.tileCount || 0;
-    const tilesPerBox = params.tilesPerBox || 1;
-    const boxCount = Math.ceil(tileCount / tilesPerBox);
-    const tilePrice = params.tilePrice || 0;
-    const totalPrice = tileCount * tilePrice;
+    const tileCountRaw = Number(params.tileCount);
+    const tileCount = Number.isFinite(tileCountRaw) ? Math.max(0, Math.ceil(tileCountRaw)) : 0;
+    const tilesPerBox = sanitizeTilesPerBox(params.tilesPerBox, 1);
+    const boxCountRaw = Number(params.boxCount);
+    const boxCount = Number.isFinite(boxCountRaw)
+        ? Math.max(0, Math.ceil(boxCountRaw))
+        : Math.ceil(tileCount / tilesPerBox);
+    const tilePriceRaw = Number(params.tilePrice);
+    const tilePrice = Number.isFinite(tilePriceRaw) ? Math.max(0, tilePriceRaw) : 0;
+    const totalPriceRaw = Number(params.totalPrice);
+    const totalPrice = Number.isFinite(totalPriceRaw) ? Math.max(0, totalPriceRaw) : (tileCount * tilePrice);
 
     // Table header
     doc.setFillColor(245, 241, 232);
@@ -309,13 +321,20 @@ export function initQuotationUI({ getDesignInfo, captureRoomImage }) {
         try {
             const info = getDesignInfo();
             const roomImageDataUrl = captureRoomImage();
+            const fallbackTilesPerBox = sanitizeTilesPerBox(info.tilesPerBox, 1);
+            const normalizedTilesPerBox = sanitizeTilesPerBox(tilesPerBoxInput?.value, fallbackTilesPerBox);
+            if (tilesPerBoxInput) {
+                tilesPerBoxInput.value = String(normalizedTilesPerBox);
+            }
 
             const filename = await generateQuotationPDF({
                 customerName: customerInput?.value?.trim() || '',
                 projectName: projectInput?.value?.trim() || '',
                 tileCount: info.tileCount,
-                tilesPerBox: parseInt(tilesPerBoxInput?.value) || 4,
+                tilesPerBox: normalizedTilesPerBox,
+                boxCount: info.boxCount,
                 tilePrice: info.tilePrice,
+                totalPrice: info.totalPrice,
                 tilePatternLabel: info.tilePatternLabel,
                 wallPatternLabel: info.wallPatternLabel,
                 gridWidth: info.gridWidth,
