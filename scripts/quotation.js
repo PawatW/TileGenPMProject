@@ -115,7 +115,9 @@ function getImageDimensions(dataUrl) {
  * @param {string} params.projectName - ชื่อโปรเจค
  * @param {number} params.tileCount - จำนวนกระเบื้อง (แผ่น)
  * @param {number} params.tilesPerBox - จำนวนแผ่น/กล่อง
- * @param {number} params.tilePrice - ราคาต่อแผ่น (บาท)
+ * @param {number} params.pricePerBox - ราคาต่อกล่อง (บาท)
+ * @param {number} params.boxCount - จำนวนกล่อง
+ * @param {number} params.totalPrice - ราคารวม
  * @param {string} params.tilePatternLabel - ชื่อลายกระเบื้อง
  * @param {string} params.wallPatternLabel - ชื่อลายผนัง
  * @param {number} params.gridWidth - ขนาด grid กว้าง
@@ -230,10 +232,10 @@ export async function generateQuotationPDF(params) {
     const boxCount = Number.isFinite(boxCountRaw)
         ? Math.max(0, Math.ceil(boxCountRaw))
         : Math.ceil(tileCount / tilesPerBox);
-    const tilePriceRaw = Number(params.tilePrice);
-    const tilePrice = Number.isFinite(tilePriceRaw) ? Math.max(0, tilePriceRaw) : 0;
+    const pricePerBoxRaw = Number(params.pricePerBox);
+    const pricePerBox = Number.isFinite(pricePerBoxRaw) ? Math.max(0, pricePerBoxRaw) : 0;
     const totalPriceRaw = Number(params.totalPrice);
-    const totalPrice = Number.isFinite(totalPriceRaw) ? Math.max(0, totalPriceRaw) : (tileCount * tilePrice);
+    const totalPrice = Number.isFinite(totalPriceRaw) ? Math.max(0, totalPriceRaw) : (boxCount * pricePerBox);
 
     // Table header
     doc.setFillColor(245, 241, 232);
@@ -263,8 +265,8 @@ export async function generateQuotationPDF(params) {
     const row1Y = y + 6.5;
     doc.text(`Tiles (${params.tilePatternLabel || '-'})`, cols[0], row1Y);
     doc.text(`${tileCount} pcs`, cols[1], row1Y);
-    doc.text(`${formatCurrency(tilePrice)} B`, cols[2], row1Y);
-    doc.text(`${formatCurrency(totalPrice)} B`, cols[3], row1Y);
+    doc.text('-', cols[2], row1Y);
+    doc.text('-', cols[3], row1Y);
     y += 9;
 
     // Row 2: Boxes
@@ -272,8 +274,8 @@ export async function generateQuotationPDF(params) {
     const row2Y = y + 6.5;
     doc.text(`Boxes (${tilesPerBox} pcs/box)`, cols[0], row2Y);
     doc.text(`${boxCount} boxes`, cols[1], row2Y);
-    doc.text('-', cols[2], row2Y);
-    doc.text('-', cols[3], row2Y);
+    doc.text(`${formatCurrency(pricePerBox)} B`, cols[2], row2Y);
+    doc.text(`${formatCurrency(totalPrice)} B`, cols[3], row2Y);
     y += 9;
 
     // Total row
@@ -321,8 +323,7 @@ export function initQuotationUI({ getDesignInfo, captureRoomImage }) {
         try {
             const info = getDesignInfo();
             const roomImageDataUrl = captureRoomImage();
-            const fallbackTilesPerBox = sanitizeTilesPerBox(info.tilesPerBox, 1);
-            const normalizedTilesPerBox = sanitizeTilesPerBox(tilesPerBoxInput?.value, fallbackTilesPerBox);
+            const normalizedTilesPerBox = sanitizeTilesPerBox(info.tilesPerBox, 1);
             if (tilesPerBoxInput) {
                 tilesPerBoxInput.value = String(normalizedTilesPerBox);
             }
@@ -333,7 +334,7 @@ export function initQuotationUI({ getDesignInfo, captureRoomImage }) {
                 tileCount: info.tileCount,
                 tilesPerBox: normalizedTilesPerBox,
                 boxCount: info.boxCount,
-                tilePrice: info.tilePrice,
+                pricePerBox: info.pricePerBox,
                 totalPrice: info.totalPrice,
                 tilePatternLabel: info.tilePatternLabel,
                 wallPatternLabel: info.wallPatternLabel,

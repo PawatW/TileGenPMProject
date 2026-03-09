@@ -1035,6 +1035,7 @@ function updatePriceSummary() {
     const tileTotalCountEl = document.getElementById('tileTotalCountVal');
     const boxCountEl = document.getElementById('boxCountVal');
     const totalPriceEl = document.getElementById('tileTotalPriceVal');
+    const quotationTilesPerBoxInput = document.getElementById('quotationTilesPerBox');
 
     pricingSummary = calculatePricingSummary();
 
@@ -1042,6 +1043,7 @@ function updatePriceSummary() {
     if (tileTotalCountEl) tileTotalCountEl.textContent = pricingSummary.tilesWithWaste.toString();
     if (boxCountEl) boxCountEl.textContent = pricingSummary.boxCount.toString();
     if (totalPriceEl) totalPriceEl.textContent = `฿ ${formatCurrency(pricingSummary.totalPrice)}`;
+    if (quotationTilesPerBoxInput) quotationTilesPerBoxInput.value = String(pricingSummary.tilesPerBox);
 
     return pricingSummary;
 }
@@ -1440,13 +1442,9 @@ initQuotationUI({
         const tileMeta = getTileMetaByKey(tilePattern);
         const wallMeta = wallTextureList.find(w => w.key === wallPattern);
         const summary = updatePriceSummary();
-        const tilePriceForLegacy = summary.tilesWithWaste > 0
-            ? summary.totalPrice / summary.tilesWithWaste
-            : 0;
 
         return {
             tileCount: summary.tilesWithWaste,
-            tilePrice: tilePriceForLegacy,
             totalAreaSqm: summary.totalAreaSqm,
             rawTilesNeeded: summary.rawTilesNeeded,
             tilesWithWaste: summary.tilesWithWaste,
