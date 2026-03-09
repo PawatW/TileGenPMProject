@@ -65,6 +65,8 @@ const realModalPreviewPlaceholder = document.getElementById('realModalPreviewPla
 const realModalDownloadBtn = document.getElementById('realModalDownloadBtn');
 let realImageProcessing = false;
 let realGeneratedImageDataUrl = null;
+const HEIF_EXTENSIONS = new Set(['heic', 'heif']);
+const KNOWN_IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'avif', 'heic', 'heif']);
 
 // --- Draft State Helpers ---
 
@@ -897,6 +899,88 @@ function blobToDataUrl(blob) {
     });
 }
 
+function getFileExtension(filename) {
+    const value = typeof filename === 'string' ? filename.trim() : '';
+    const idx = value.lastIndexOf('.');
+    if (idx < 0) return '';
+    return value.slice(idx + 1).toLowerCase();
+}
+
+function isLikelyImageUpload(file) {
+    if (!file) return false;
+    if (typeof file.type === 'string' && file.type.toLowerCase().startsWith('image/')) {
+        return true;
+    }
+    return KNOWN_IMAGE_EXTENSIONS.has(getFileExtension(file.name));
+}
+
+function shouldNormalizeUploadForPreview(file) {
+    const type = (file?.type || '').toLowerCase();
+    const ext = getFileExtension(file?.name || '');
+    return !type || type.includes('heic') || type.includes('heif') || HEIF_EXTENSIONS.has(ext);
+}
+
+async function dataUrlToBlob(dataUrl) {
+    const response = await fetch(dataUrl);
+    if (!response.ok) {
+        throw new Error('ไม่สามารถเตรียมรูปภาพที่แปลงแล้วได้');
+    }
+    return response.blob();
+}
+
+async function requestNormalizedRoomImage(file) {
+    const formData = new FormData();
+    formData.append('image', file);
+
+    const response = await fetch('/api/image-normalize', {
+        method: 'POST',
+        body: formData
+    });
+
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const message = typeof result?.error === 'string' ? result.error : 'ไม่สามารถแปลงไฟล์รูปภาพได้';
+        throw new Error(message);
+    }
+
+    const dataUrl = result?.image_data_url;
+    const mimeType = result?.mime_type;
+    const filename = result?.filename;
+    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+        throw new Error('ไฟล์รูปภาพที่แปลงแล้วไม่ถูกต้อง');
+    }
+
+    const normalizedBlob = await dataUrlToBlob(dataUrl);
+    const uploadFile = new File([normalizedBlob], typeof filename === 'string' && filename ? filename : 'room-image.jpg', {
+        type: typeof mimeType === 'string' && mimeType.startsWith('image/') ? mimeType : normalizedBlob.type || 'image/jpeg'
+    });
+
+    return {
+        previewDataUrl: dataUrl,
+        uploadFile
+    };
+}
+
+async function prepareRealRoomImage(file) {
+    if (!isLikelyImageUpload(file)) {
+        throw new Error('กรุณาเลือกไฟล์รูปภาพที่ถูกต้อง');
+    }
+
+    if (shouldNormalizeUploadForPreview(file)) {
+        return requestNormalizedRoomImage(file);
+    }
+
+    const previewDataUrl = await blobToDataUrl(file);
+    if (typeof previewDataUrl === 'string' && previewDataUrl.startsWith('data:image/')) {
+        return {
+            previewDataUrl,
+            uploadFile: file
+        };
+    }
+
+    return requestNormalizedRoomImage(file);
+}
+
 async function assetImageToDataUrl(url) {
     const response = await fetch(resolveAssetUrl(url));
     if (!response.ok) {
@@ -958,7 +1042,7 @@ async function getWallReferenceDataUrl() {
 }
 
 async function testRealImageWithOpenRouter(roomImage) {
-    if (!roomImage || !roomImage.type?.startsWith('image/')) {
+    if (!roomImage || !isLikelyImageUpload(roomImage)) {
         setRealModalStatus('กรุณาเลือกไฟล์รูปภาพที่ถูกต้อง', true);
         return;
     }
@@ -969,10 +1053,8 @@ async function testRealImageWithOpenRouter(roomImage) {
     setRealModalLoadingStatus();
 
     try {
-        const previewDataUrl = await blobToDataUrl(roomImage);
-        if (typeof previewDataUrl !== 'string' || !previewDataUrl.startsWith('data:image/')) {
-            throw new Error('ไม่สามารถอ่านรูปห้องที่อัปโหลดได้');
-        }
+        const preparedRoomImage = await prepareRealRoomImage(roomImage);
+        const previewDataUrl = preparedRoomImage.previewDataUrl;
 
         if (realModalPreviewImage) {
             realModalPreviewImage.src = previewDataUrl;
@@ -988,7 +1070,7 @@ async function testRealImageWithOpenRouter(roomImage) {
         ]);
 
         const formData = new FormData();
-        formData.append('room_image', roomImage);
+    formData.append('room_image', preparedRoomImage.uploadFile);
         formData.append('tile_reference_data_url', tileReferenceDataUrl);
         formData.append('wall_reference_data_url', wallReferenceDataUrl);
         formData.append('tile_pattern_label', tileMeta?.label || tilePattern);

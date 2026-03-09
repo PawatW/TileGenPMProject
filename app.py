@@ -20,6 +20,12 @@ def _bytes_to_data_url(data: bytes, mime_type: str) -> str:
     return f"data:{mime_type};base64,{encoded}"
 
 
+def _build_normalized_filename(filename: str | None, mime_type: str) -> str:
+    stem = Path(filename or "uploaded-image").stem or "uploaded-image"
+    extension = "png" if mime_type == "image/png" else "jpg"
+    return f"{stem}.{extension}"
+
+
 def _fix_orientation_if_needed(image_bytes: bytes, target_mime: str) -> tuple[bytes, bool]:
     with Image.open(io.BytesIO(image_bytes)) as img:
         exif = img.getexif()
@@ -143,6 +149,34 @@ def _extract_image_data_url(openrouter_result: dict) -> str | None:
                 return image_url
 
     return None
+
+
+@app.post("/api/image-normalize")
+def image_normalize():
+    image_file = request.files.get("image") or request.files.get("room_image")
+    if image_file is None or not image_file.filename:
+        return jsonify({"error": "Please upload an image"}), 400
+
+    image_bytes = image_file.read()
+    if not image_bytes:
+        return jsonify({"error": "Uploaded image is empty"}), 400
+
+    try:
+        normalized_bytes, normalized_mime = _normalize_upload_image(
+            image_bytes,
+            image_file.mimetype,
+            image_file.filename,
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    return jsonify(
+        {
+            "image_data_url": _bytes_to_data_url(normalized_bytes, normalized_mime),
+            "mime_type": normalized_mime,
+            "filename": _build_normalized_filename(image_file.filename, normalized_mime),
+        }
+    )
 
 
 @app.post("/api/image-edit")
