@@ -47,6 +47,8 @@ let pricingSummary = {
     pricePerBox: 0,
     totalPrice: 0
 };
+const GRID_MIN = 2;
+const GRID_MAX = 10;
 
 const draftToolbar = document.getElementById('draft-toolbar');
 const undoBtn = document.getElementById('undoBtn');
@@ -90,6 +92,50 @@ function normalizeGrid2D(source, width, height, defaultValue) {
     return out;
 }
 
+function sanitizeGridDimension(value, fallback) {
+    const n = Number.parseInt(value, 10);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(GRID_MIN, Math.min(GRID_MAX, n));
+}
+
+function applyGridDimensionsFromInputs({ commitInputValue = false, recordHistory = false } = {}) {
+    const gridWInput = document.getElementById('gridW');
+    const gridHInput = document.getElementById('gridH');
+    const nextGridWidth = sanitizeGridDimension(gridWInput?.value, gridWidth);
+    const nextGridHeight = sanitizeGridDimension(gridHInput?.value, gridHeight);
+
+    if (commitInputValue) {
+        if (gridWInput) gridWInput.value = String(nextGridWidth);
+        if (gridHInput) gridHInput.value = String(nextGridHeight);
+    }
+
+    if (nextGridWidth === gridWidth && nextGridHeight === gridHeight) return;
+
+    gridWidth = nextGridWidth;
+    gridHeight = nextGridHeight;
+
+    gridData = normalizeGrid2D(gridData, gridWidth, gridHeight, 1).map(col => col.map(v => (v ? 1 : 0)));
+    rotationData = normalizeGrid2D(rotationData, gridWidth, gridHeight, 0).map(col => col.map(v => {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return 0;
+        return ((Math.round(n) % 4) + 4) % 4;
+    }));
+
+    removedWalls.clear();
+    placementMode = null;
+    while (fixturesGroup.children.length > 0) {
+        fixturesGroup.remove(fixturesGroup.children[0]);
+    }
+
+    renderUI();
+    build3D();
+    renderFixtureSwatches();
+    updatePriceSummary();
+    if (recordHistory) {
+        recordHistorySnapshot();
+    }
+}
+
 function serializeDesignState() {
     const fixtures = fixturesGroup?.children?.map((fixture) => {
         const data = fixture?.userData ?? {};
@@ -118,8 +164,8 @@ function serializeDesignState() {
 function applyDesignState(state) {
     if (!state || typeof state !== 'object') return;
 
-    const nextGridWidth = clampInt(state.gridWidth, 2, 10, gridWidth);
-    const nextGridHeight = clampInt(state.gridHeight, 2, 10, gridHeight);
+    const nextGridWidth = clampInt(state.gridWidth, GRID_MIN, GRID_MAX, gridWidth);
+    const nextGridHeight = clampInt(state.gridHeight, GRID_MIN, GRID_MAX, gridHeight);
     gridWidth = nextGridWidth;
     gridHeight = nextGridHeight;
 
@@ -422,8 +468,12 @@ const mouse = new THREE.Vector2();
 
 // เริ่มต้นสร้าง Grid Data
 window.resetGrid = function() {
-    gridWidth = parseInt(document.getElementById('gridW').value);
-    gridHeight = parseInt(document.getElementById('gridH').value);
+    gridWidth = sanitizeGridDimension(document.getElementById('gridW')?.value, gridWidth);
+    gridHeight = sanitizeGridDimension(document.getElementById('gridH')?.value, gridHeight);
+    const gridWInput = document.getElementById('gridW');
+    const gridHInput = document.getElementById('gridH');
+    if (gridWInput) gridWInput.value = String(gridWidth);
+    if (gridHInput) gridHInput.value = String(gridHeight);
     gridData = [];
     rotationData = [];
     removedWalls.clear();
@@ -1295,6 +1345,24 @@ if (wallHeightInput) {
     wallHeightInput.addEventListener('change', () => {
         recordHistorySnapshot();
     });
+}
+
+const gridWInput = document.getElementById('gridW');
+const gridHInput = document.getElementById('gridH');
+if (gridWInput && gridHInput) {
+    const onGridInput = () => {
+        applyGridDimensionsFromInputs({ commitInputValue: false, recordHistory: false });
+    };
+    const onGridCommit = () => {
+        applyGridDimensionsFromInputs({ commitInputValue: true, recordHistory: true });
+    };
+
+    gridWInput.addEventListener('input', onGridInput);
+    gridHInput.addEventListener('input', onGridInput);
+    gridWInput.addEventListener('change', onGridCommit);
+    gridHInput.addEventListener('change', onGridCommit);
+    gridWInput.addEventListener('blur', onGridCommit);
+    gridHInput.addEventListener('blur', onGridCommit);
 }
 
 if (realImageOpenBtn) {
