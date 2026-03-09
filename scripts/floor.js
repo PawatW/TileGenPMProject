@@ -1069,8 +1069,8 @@ function build3D() {
             // 1. สร้างพื้น (Tile)
             const baseTexture = tileTextures[tilePattern] || tileTextures[tileMeta?.key || ''];
             const tileMaterial = baseTexture
-                ? new THREE.MeshStandardMaterial({ map: baseTexture })
-                : new THREE.MeshStandardMaterial({ color: 0xe5e5e5 });
+                ? new THREE.MeshStandardMaterial({ map: baseTexture, side: THREE.DoubleSide })
+                : new THREE.MeshStandardMaterial({ color: 0xe5e5e5, side: THREE.DoubleSide });
             const tile = new THREE.Mesh(tileGeometry, tileMaterial);
             tile.rotation.x = -Math.PI / 2; // นอนราบ
             tile.rotation.z = - (rotationData[x][y] * Math.PI / 2); // หมุนตามค่าที่เก็บไว้
