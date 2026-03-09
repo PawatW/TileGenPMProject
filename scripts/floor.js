@@ -1006,7 +1006,6 @@ function build3D() {
     }
 
     const tileMeta = getTileMetaByKey(tilePattern);
-    const { widthM, lengthM } = getTileSizeInMeters(tileMeta);
 
     // คำนวณ Offset ให้ห้องอยู่ตรงกลางโลก
     const offsetX = (gridWidth * 1) / 2 - 0.5;
@@ -1019,21 +1018,9 @@ function build3D() {
 
             // 1. สร้างพื้น (Tile)
             const baseTexture = tileTextures[tilePattern] || tileTextures[tileMeta?.key || ''];
-            let tileMaterial;
-
-            if (baseTexture) {
-                const clonedTexture = baseTexture.clone();
-                clonedTexture.wrapS = clonedTexture.wrapT = THREE.RepeatWrapping;
-                clonedTexture.repeat.set(
-                    widthM > 0 ? 1 / widthM : 1,
-                    lengthM > 0 ? 1 / lengthM : 1
-                );
-                clonedTexture.needsUpdate = true;
-                tileMaterial = new THREE.MeshStandardMaterial({ map: clonedTexture });
-            } else {
-                tileMaterial = new THREE.MeshStandardMaterial({ color: 0xe5e5e5 });
-            }
-
+            const tileMaterial = baseTexture
+                ? new THREE.MeshStandardMaterial({ map: baseTexture })
+                : new THREE.MeshStandardMaterial({ color: 0xe5e5e5 });
             const tile = new THREE.Mesh(tileGeometry, tileMaterial);
             tile.rotation.x = -Math.PI / 2; // นอนราบ
             tile.rotation.z = - (rotationData[x][y] * Math.PI / 2); // หมุนตามค่าที่เก็บไว้
