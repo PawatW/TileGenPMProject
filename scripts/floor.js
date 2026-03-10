@@ -24,8 +24,8 @@ let wallHeight = 2.5;
 // rotationData เก็บมุมหมุนของแต่ละช่อง: 0, 1, 2, 3 (x 90 deg)
 let gridData = []; 
 let rotationData = [];
-let tilePattern = 'quarter';
-let wallPattern = 'paint';
+let tilePattern = 'mosaic_hideaway_alpine'; // Default to 'MT4SR1ไฮด์อเวย์อัลไพน์ เทาอ่อน'
+let wallPattern = '8851740036185'; // Default to 'ทรูเนเจอร์ รัสติค บริค สีน้ำตาล'
 let placementMode = null;
 let wallDeleteMode = false;
 let ignoreNextClick = false;
@@ -37,6 +37,11 @@ const historyStack = [];
 let historyIndex = -1;
 let suppressHistoryRecording = false;
 let dragMutatedState = false;
+const WALL_LAYOUT_OPEN = 'open';
+const WALL_LAYOUT_FULL = 'full';
+const WALL_LAYOUT_CUSTOM = 'custom';
+let wallLayoutPreset = WALL_LAYOUT_OPEN;
+let wallLayoutMode = WALL_LAYOUT_OPEN;
 let pricingSummary = {
     totalAreaSqm: 0,
     areaPerTile: 0,
@@ -49,6 +54,7 @@ let pricingSummary = {
 };
 const GRID_MIN = 2;
 const GRID_MAX = 10;
+const DEFAULT_OPEN_WALL_LAYOUT_SIDES = ['bottom', 'right'];
 
 const draftToolbar = document.getElementById('draft-toolbar');
 const undoBtn = document.getElementById('undoBtn');
@@ -57,6 +63,8 @@ const topBarToggleBtn = document.getElementById('topBarToggleBtn');
 const realImageOpenBtn = document.getElementById('realImageOpenBtn');
 const realImageModal = document.getElementById('realImageModal');
 const realImageModalCloseBtn = document.getElementById('realImageModalCloseBtn');
+const wallLayoutOpenBtn = document.getElementById('wallLayoutOpenBtn');
+const wallLayoutFullBtn = document.getElementById('wallLayoutFullBtn');
 const realModalImageInput = document.getElementById('realModalImageInput');
 const realModalStatus = document.getElementById('realModalStatus');
 const realModalPreviewWrap = document.getElementById('realModalPreviewWrap');
@@ -100,6 +108,71 @@ function sanitizeGridDimension(value, fallback) {
     return Math.max(GRID_MIN, Math.min(GRID_MAX, n));
 }
 
+function applyDefaultOpenWallLayout() {
+    removedWalls.clear();
+
+    DEFAULT_OPEN_WALL_LAYOUT_SIDES.forEach((side) => {
+        if (side === 'bottom') {
+            for (let x = 0; x < gridWidth; x++) {
+                for (let y = gridHeight - 1; y >= 0; y--) {
+                    if (!gridData?.[x]?.[y]) continue;
+                    removedWalls.add(`${x},${y},bottom`);
+                    break;
+                }
+            }
+            return;
+        }
+
+        if (side === 'right') {
+            for (let y = 0; y < gridHeight; y++) {
+                for (let x = gridWidth - 1; x >= 0; x--) {
+                    if (!gridData?.[x]?.[y]) continue;
+                    removedWalls.add(`${x},${y},right`);
+                    break;
+                }
+            }
+        }
+    });
+}
+
+function applySelectedWallLayoutPreset() {
+    if (wallLayoutPreset === WALL_LAYOUT_FULL) {
+        removedWalls.clear();
+        wallLayoutMode = WALL_LAYOUT_FULL;
+        return;
+    }
+
+    applyDefaultOpenWallLayout();
+    wallLayoutMode = WALL_LAYOUT_OPEN;
+}
+
+function syncWallLayoutControls() {
+    if (wallLayoutOpenBtn) {
+        const isActive = wallLayoutMode === WALL_LAYOUT_OPEN;
+        wallLayoutOpenBtn.classList.toggle('active', isActive);
+        wallLayoutOpenBtn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    }
+
+    if (wallLayoutFullBtn) {
+        const isActive = wallLayoutMode === WALL_LAYOUT_FULL;
+        wallLayoutFullBtn.classList.toggle('active', isActive);
+        wallLayoutFullBtn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    }
+}
+
+function setWallLayoutPreset(preset, { recordHistory = true } = {}) {
+    if (![WALL_LAYOUT_OPEN, WALL_LAYOUT_FULL].includes(preset)) return;
+
+    wallLayoutPreset = preset;
+    applySelectedWallLayoutPreset();
+    syncWallLayoutControls();
+    build3D();
+
+    if (recordHistory) {
+        recordHistorySnapshot();
+    }
+}
+
 function applyGridDimensionsFromInputs({ commitInputValue = false, recordHistory = false } = {}) {
     const gridWInput = document.getElementById('gridW');
     const gridHInput = document.getElementById('gridH');
@@ -123,13 +196,14 @@ function applyGridDimensionsFromInputs({ commitInputValue = false, recordHistory
         return ((Math.round(n) % 4) + 4) % 4;
     }));
 
-    removedWalls.clear();
+    applySelectedWallLayoutPreset();
     placementMode = null;
     while (fixturesGroup.children.length > 0) {
         fixturesGroup.remove(fixturesGroup.children[0]);
     }
 
     renderUI();
+    syncWallLayoutControls();
     build3D();
     renderFixtureSwatches();
     updatePriceSummary();
@@ -150,12 +224,14 @@ function serializeDesignState() {
     }) ?? [];
 
     return {
-        schemaVersion: 1,
+        schemaVersion: 3,
         gridWidth,
         gridHeight,
         wallHeight: Number(wallHeight),
         tilePattern,
         wallPattern,
+        wallLayoutPreset,
+        wallLayoutMode,
         gridData,
         rotationData,
         removedWalls: Array.from(removedWalls),
@@ -175,6 +251,14 @@ function applyDesignState(state) {
 
     if (typeof state.tilePattern === 'string') tilePattern = state.tilePattern;
     if (typeof state.wallPattern === 'string') wallPattern = state.wallPattern;
+    wallLayoutPreset = state.wallLayoutPreset === WALL_LAYOUT_FULL ? WALL_LAYOUT_FULL : WALL_LAYOUT_OPEN;
+    if ([WALL_LAYOUT_OPEN, WALL_LAYOUT_FULL, WALL_LAYOUT_CUSTOM].includes(state.wallLayoutMode)) {
+        wallLayoutMode = state.wallLayoutMode;
+    } else if (typeof state.useDefaultOpenWallLayout === 'boolean') {
+        wallLayoutMode = state.useDefaultOpenWallLayout ? WALL_LAYOUT_OPEN : WALL_LAYOUT_CUSTOM;
+    } else {
+        wallLayoutMode = wallLayoutPreset;
+    }
 
     gridData = normalizeGrid2D(state.gridData, gridWidth, gridHeight, 1).map(col => col.map(v => (v ? 1 : 0)));
     rotationData = normalizeGrid2D(state.rotationData, gridWidth, gridHeight, 0).map(col => col.map(v => {
@@ -184,10 +268,17 @@ function applyDesignState(state) {
     }));
 
     removedWalls.clear();
-    if (Array.isArray(state.removedWalls)) {
+    if (wallLayoutMode === WALL_LAYOUT_OPEN) {
+        applyDefaultOpenWallLayout();
+        wallLayoutMode = WALL_LAYOUT_OPEN;
+    } else if (wallLayoutMode === WALL_LAYOUT_FULL) {
+        removedWalls.clear();
+    } else if (Array.isArray(state.removedWalls)) {
         state.removedWalls.forEach((key) => {
             if (typeof key === 'string') removedWalls.add(key);
         });
+    } else {
+        applySelectedWallLayoutPreset();
     }
 
     // Sync form controls
@@ -215,6 +306,7 @@ function applyDesignState(state) {
     const wallSelect = document.getElementById('wallTextureSelect');
     if (wallSelect) wallSelect.value = wallPattern;
 
+    syncWallLayoutControls();
     renderWallSwatches();
     renderTileSwatches();
     renderFixtureSwatches();
@@ -493,7 +585,9 @@ window.resetGrid = function() {
             rotationData[x][y] = 0; // Default ไม่หมุน
         }
     }
+    applySelectedWallLayoutPreset();
     renderUI();
+    syncWallLayoutControls();
     build3D();
     renderFixtureSwatches();
     updatePriceSummary();
@@ -513,6 +607,11 @@ function renderUI() {
             cell.className = gridData[x][y] ? 'grid-cell active' : 'grid-cell';
             cell.onclick = () => {
                 gridData[x][y] = gridData[x][y] ? 0 : 1; // Toggle 0/1
+                if (wallLayoutMode === WALL_LAYOUT_OPEN) {
+                    applyDefaultOpenWallLayout();
+                } else if (wallLayoutMode === WALL_LAYOUT_FULL) {
+                    removedWalls.clear();
+                }
                 renderUI();
                 build3D(); // สร้าง 3D ใหม่ทันที
                 recordHistorySnapshot();
@@ -1391,11 +1490,13 @@ function onCanvasClick(event) {
             if (wallHit) {
                 const { x, y, side } = wallHit.object.userData;
                 const wallKey = `${x},${y},${side}`;
+                wallLayoutMode = WALL_LAYOUT_CUSTOM;
                 if (removedWalls.has(wallKey)) {
                     removedWalls.delete(wallKey);
                 } else {
                     removedWalls.add(wallKey);
                 }
+                syncWallLayoutControls();
                 build3D();
                 recordHistorySnapshot();
             }
@@ -1415,6 +1516,12 @@ function onCanvasClick(event) {
 // Init
 if (undoBtn) undoBtn.addEventListener('click', undoDesignAction);
 if (redoBtn) redoBtn.addEventListener('click', redoDesignAction);
+if (wallLayoutOpenBtn) {
+    wallLayoutOpenBtn.addEventListener('click', () => setWallLayoutPreset(WALL_LAYOUT_OPEN));
+}
+if (wallLayoutFullBtn) {
+    wallLayoutFullBtn.addEventListener('click', () => setWallLayoutPreset(WALL_LAYOUT_FULL));
+}
 if (topBarToggleBtn) {
     topBarToggleBtn.addEventListener('click', () => {
         const collapsed = draftToolbar?.classList.contains('is-collapsed');
@@ -1495,6 +1602,7 @@ if (realModalDownloadBtn) {
 
 setTopBarCollapsed(false);
 updateHistoryButtons();
+syncWallLayoutControls();
 setRealModalStatus('');
 resetRealModalPreview();
 

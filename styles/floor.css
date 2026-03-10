@@ -310,6 +310,45 @@ input[type="range"]::-webkit-slider-thumb:hover {
     transform: scale(1.2);
 }
 
+/* ─── Segmented Control ────────────────────────────────────────────────────── */
+.segmented-control {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.segmented-btn {
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+    color: var(--text-sec);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.segmented-btn:hover {
+    border-color: var(--border-strong);
+    color: var(--text);
+}
+
+.segmented-btn:focus-visible {
+    outline: none;
+    border-color: rgba(var(--gold-rgb), 0.45);
+    box-shadow: 0 0 0 3px rgba(var(--gold-rgb), 0.12);
+}
+
+.segmented-btn.active {
+    background: var(--gold-dim);
+    border-color: rgba(var(--gold-rgb), 0.35);
+    color: var(--gold);
+}
+
 /* ─── Toggle Switch ────────────────────────────────────────────────────────── */
 .toggle-row {
     display: flex;
