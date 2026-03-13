@@ -4,12 +4,13 @@ import os
 from pathlib import Path
 
 import requests
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request
+from flask_cors import CORS
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pillow_heif import register_heif_opener
 
 app = Flask(__name__)
-BASE_DIR = Path(__file__).resolve().parent
+CORS(app)
 app.config["MAX_CONTENT_LENGTH"] = 15 * 1024 * 1024
 
 register_heif_opener()
@@ -265,16 +266,6 @@ def image_edit():
         return jsonify({"error": "OpenRouter response did not include an image", "details": result}), 502
 
     return jsonify({"output_image_data_url": output_image_data_url})
-
-
-@app.route("/")
-def index():
-    return send_from_directory(BASE_DIR, "floor.html")
-
-
-@app.route("/<path:filename>")
-def static_files(filename: str):
-    return send_from_directory(BASE_DIR, filename)
 
 
 if __name__ == "__main__":
