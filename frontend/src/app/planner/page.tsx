@@ -59,11 +59,11 @@ export default function PlannerPage() {
           <div className="two-col">
             <div className="field">
               <label>กว้าง (X) (เมตร)</label>
-              <input type="number" id="gridW" defaultValue={4} min={2} max={10} step={1} />
+              <input type="number" id="gridW" defaultValue={4} min={2} max={10} step={0.01} />
             </div>
             <div className="field">
               <label>ลึก (Y) (เมตร)</label>
-              <input type="number" id="gridH" defaultValue={4} min={2} max={10} step={1} />
+              <input type="number" id="gridH" defaultValue={4} min={2} max={10} step={0.01} />
             </div>
           </div>
           <button className="btn-ghost" onClick={() => (window as any).resetGrid?.()}>รีเซ็ตตาราง</button>
@@ -107,6 +107,9 @@ export default function PlannerPage() {
             className="hidden-select"
             onChange={() => (window as any).updateWallTexture?.()}
           ></select>
+          <button className="btn-outline" style={{ width: "100%", justifyContent: "center", marginBottom: "16px" }} onClick={() => (window as any).fillAllWalls?.()}>
+            เทลายนี้ทุกกำแพง
+          </button>
           <div className="toggle-row">
             <span className="toggle-label">โหมดลบกำแพง</span>
             <label className="switch">
@@ -128,15 +131,29 @@ export default function PlannerPage() {
             <h3 className="section-title">กระเบื้อง</h3>
           </div>
           <p className="hint">คลิกกระเบื้องใน 3D เพื่อหมุนทีละแผ่น</p>
-          <button className="btn-outline" onClick={() => (window as any).rotateAllTiles?.()}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-              <polyline points="1 4 1 10 7 10"/>
-              <path d="M3.51 15a9 9 0 1 0 .49-3"/>
-            </svg>
-            หมุนทั้งหมด +90°
-          </button>
+          <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
+            <button className="btn-outline" style={{ flex: 1, justifyContent: "center", padding: "8px 4px" }} onClick={() => (window as any).rotateAllTiles?.()}>
+              หมุนทั้งหมด
+            </button>
+            <button className="btn-outline" style={{ flex: 1, justifyContent: "center", padding: "8px 4px" }} onClick={() => (window as any).flipAllTiles?.()}>
+              พลิกทั้งหมด
+            </button>
+          </div>
+          <div className="toggle-row" style={{ marginTop: "12px", border: "none", padding: 0 }}>
+            <span className="toggle-label" style={{ fontSize: "12px" }}>โหมดกระจก (คลิกเพื่อพลิก)</span>
+            <label className="switch">
+              <input
+                type="checkbox"
+                onChange={(e) => (window as any).toggleTileFlipMode?.((e.target as HTMLInputElement).checked)}
+              />
+              <span className="switch-track"></span>
+            </label>
+          </div>
           <label className="field-label" style={{ marginTop: "12px" }}>ลายกระเบื้อง</label>
           <div id="tileSwatches" className="swatch-grid"></div>
+          <button className="btn-outline" style={{ marginTop: "12px", width: "100%", justifyContent: "center" }} onClick={() => (window as any).fillAllTiles?.()}>
+            เทลายนี้ทั้งห้อง (Fill Room)
+          </button>
         </div>
 
         {/* Section: Fixtures */}

@@ -41,15 +41,29 @@ export default function Navbar() {
 
         {/* Nav links */}
         <div className="navbar-links">
-          {NAV_LINKS.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className={`navbar-link${pathname.startsWith(link.href) ? " active" : ""}`}
-            >
-              {link.label}
-            </Link>
-          ))}
+          {NAV_LINKS.map((link) => {
+            // Force hard reload when entering or leaving planner to avoid WebGL context leaks and native script conflicts.
+            if (link.href === "/planner" || pathname === "/planner") {
+              return (
+                <a
+                  key={link.href}
+                  href={link.href}
+                  className={`navbar-link${pathname.startsWith(link.href) ? " active" : ""}`}
+                >
+                  {link.label}
+                </a>
+              );
+            }
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={`navbar-link${pathname.startsWith(link.href) ? " active" : ""}`}
+              >
+                {link.label}
+              </Link>
+            );
+          })}
         </div>
 
         {/* User */}

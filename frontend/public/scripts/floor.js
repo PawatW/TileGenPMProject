@@ -17,17 +17,28 @@ import { initDraftSlotsUI } from './drafts.js';
 import { initQuotationUI } from './quotation.js';
 
 // --- 1. State Management (เก็บข้อมูล Grid) ---
-let gridWidth = 4;
-let gridHeight = 4;
+let gridWidth = 4.0;
+let gridHeight = 4.0;
 let wallHeight = 2.5;
 // gridData เก็บสถานะ: 0 = ว่าง, 1 = มีพื้น
 // rotationData เก็บมุมหมุนของแต่ละช่อง: 0, 1, 2, 3 (x 90 deg)
+// flipData เก็บสถานะการพลิกกลับด้าน (Mirror): 0 = ปกติ, 1 = พลิกซ้ายขวา
 let gridData = []; 
 let rotationData = [];
+let flipData = [];
+// เก็บชนิดกระเบื้องและกำแพงรายช่อง/รายด้าน (key: 'x,y' หรือ 'x,y,side')
+let floorTextureData = {};
+let wallTextureData = {};
 let tilePattern = 'mosaic_hideaway_alpine'; // Default to 'MT4SR1ไฮด์อเวย์อัลไพน์ เทาอ่อน'
 let wallPattern = '8851740036185'; // Default to 'ทรูเนเจอร์ รัสติค บริค สีน้ำตาล'
+
+// Brushes (ลายที่ถูกเลือกอยู่เพื่อรอทา)
+let tileBrush = null;
+let wallBrush = null;
+
 let placementMode = null;
 let wallDeleteMode = false;
+let tileFlipMode = false;
 let ignoreNextClick = false;
 let isDraggingFixture = false;
 let draggingFixture = null;
@@ -92,9 +103,11 @@ function clampNumber(value, min, max, fallback) {
 
 function normalizeGrid2D(source, width, height, defaultValue) {
     const out = [];
-    for (let x = 0; x < width; x++) {
+    const cw = Math.ceil(width);
+    const ch = Math.ceil(height);
+    for (let x = 0; x < cw; x++) {
         out[x] = [];
-        for (let y = 0; y < height; y++) {
+        for (let y = 0; y < ch; y++) {
             const v = source?.[x]?.[y];
             out[x][y] = v ?? defaultValue;
         }
@@ -103,7 +116,7 @@ function normalizeGrid2D(source, width, height, defaultValue) {
 }
 
 function sanitizeGridDimension(value, fallback) {
-    const n = Number.parseInt(value, 10);
+    const n = parseFloat(value);
     if (!Number.isFinite(n)) return fallback;
     return Math.max(GRID_MIN, Math.min(GRID_MAX, n));
 }
@@ -113,8 +126,10 @@ function applyDefaultOpenWallLayout() {
 
     DEFAULT_OPEN_WALL_LAYOUT_SIDES.forEach((side) => {
         if (side === 'bottom') {
-            for (let x = 0; x < gridWidth; x++) {
-                for (let y = gridHeight - 1; y >= 0; y--) {
+            const ch = Math.ceil(gridHeight);
+            const cw = Math.ceil(gridWidth);
+            for (let x = 0; x < cw; x++) {
+                for (let y = ch - 1; y >= 0; y--) {
                     if (!gridData?.[x]?.[y]) continue;
                     removedWalls.add(`${x},${y},bottom`);
                     break;
@@ -124,8 +139,10 @@ function applyDefaultOpenWallLayout() {
         }
 
         if (side === 'right') {
-            for (let y = 0; y < gridHeight; y++) {
-                for (let x = gridWidth - 1; x >= 0; x--) {
+            const ch = Math.ceil(gridHeight);
+            const cw = Math.ceil(gridWidth);
+            for (let y = 0; y < ch; y++) {
+                for (let x = cw - 1; x >= 0; x--) {
                     if (!gridData?.[x]?.[y]) continue;
                     removedWalls.add(`${x},${y},right`);
                     break;
@@ -224,7 +241,7 @@ function serializeDesignState() {
     }) ?? [];
 
     return {
-        schemaVersion: 3,
+        schemaVersion: 4,
         gridWidth,
         gridHeight,
         wallHeight: Number(wallHeight),
@@ -234,6 +251,9 @@ function serializeDesignState() {
         wallLayoutMode,
         gridData,
         rotationData,
+        flipData,
+        floorTextureData,
+        wallTextureData,
         removedWalls: Array.from(removedWalls),
         fixtures
     };
@@ -242,8 +262,8 @@ function serializeDesignState() {
 function applyDesignState(state) {
     if (!state || typeof state !== 'object') return;
 
-    const nextGridWidth = clampInt(state.gridWidth, GRID_MIN, GRID_MAX, gridWidth);
-    const nextGridHeight = clampInt(state.gridHeight, GRID_MIN, GRID_MAX, gridHeight);
+    const nextGridWidth = sanitizeGridDimension(state.gridWidth, gridWidth);
+    const nextGridHeight = sanitizeGridDimension(state.gridHeight, gridHeight);
     gridWidth = nextGridWidth;
     gridHeight = nextGridHeight;
 
@@ -266,6 +286,12 @@ function applyDesignState(state) {
         if (!Number.isFinite(n)) return 0;
         return ((Math.round(n) % 4) + 4) % 4;
     }));
+    flipData = normalizeGrid2D(state.flipData, gridWidth, gridHeight, 0).map(col => col.map(v => (v ? 1 : 0)));
+
+    floorTextureData = state.floorTextureData || {};
+    wallTextureData = state.wallTextureData || {};
+    tileBrush = state.tilePattern;
+    wallBrush = state.wallPattern;
 
     removedWalls.clear();
     if (wallLayoutMode === WALL_LAYOUT_OPEN) {
@@ -350,6 +376,10 @@ function setTopBarCollapsed(collapsed) {
 function recordHistorySnapshot({ force = false } = {}) {
     if (suppressHistoryRecording) return;
     const snapshot = JSON.stringify(serializeDesignState());
+
+    try {
+        window.localStorage?.setItem('pm69-floorplanner:autosave:v1', snapshot);
+    } catch (e) {}
 
     if (!force && historyIndex >= 0 && historyStack[historyIndex] === snapshot) {
         return;
@@ -570,19 +600,27 @@ window.resetGrid = function() {
     if (gridHInput) gridHInput.value = String(gridHeight);
     gridData = [];
     rotationData = [];
+    flipData = [];
+    floorTextureData = {};
+    wallTextureData = {};
     removedWalls.clear();
     placementMode = null;
     while (fixturesGroup.children.length > 0) {
         fixturesGroup.remove(fixturesGroup.children[0]);
     }
 
+    const cw = Math.ceil(gridWidth);
+    const ch = Math.ceil(gridHeight);
+    
     // สร้าง Array 2 มิติ
-    for(let x=0; x<gridWidth; x++) {
+    for(let x=0; x<cw; x++) {
         gridData[x] = [];
         rotationData[x] = [];
-        for(let y=0; y<gridHeight; y++) {
+        flipData[x] = [];
+        for(let y=0; y<ch; y++) {
             gridData[x][y] = 1; // Default คือมีพื้นเต็ม
             rotationData[x][y] = 0; // Default ไม่หมุน
+            flipData[x][y] = 0; // Default ไม่พลิก
         }
     }
     applySelectedWallLayoutPreset();
@@ -597,12 +635,14 @@ window.resetGrid = function() {
 // สร้างตาราง UI (Grid Editor)
 function renderUI() {
     const editor = document.getElementById('grid-editor');
-    editor.style.gridTemplateColumns = `repeat(${gridWidth}, 1fr)`;
+    const cw = Math.ceil(gridWidth);
+    const ch = Math.ceil(gridHeight);
+    editor.style.gridTemplateColumns = `repeat(${cw}, 1fr)`;
     editor.innerHTML = '';
 
     // Note: Loop y แล้ว x เพื่อให้การวาดใน HTML เรียงแถวถูกต้อง
-    for(let y=0; y<gridHeight; y++) {
-        for(let x=0; x<gridWidth; x++) {
+    for(let y=0; y<ch; y++) {
+        for(let x=0; x<cw; x++) {
             const cell = document.createElement('div');
             cell.className = gridData[x][y] ? 'grid-cell active' : 'grid-cell';
             cell.onclick = () => {
@@ -630,7 +670,8 @@ function renderTileSwatches() {
         item.className = 'swatch-item';
 
         const swatch = document.createElement('div');
-        swatch.className = `tile-swatch ${tilePattern === key ? 'active' : ''}`;
+        const activeTile = tileBrush || tilePattern;
+        swatch.className = `tile-swatch ${activeTile === key ? 'active' : ''}`;
         swatch.title = label;
         if (type === 'canvas') {
             swatch.style.backgroundImage = `url(${tileTextureCanvases[key].toDataURL()})`;
@@ -675,7 +716,8 @@ function renderWallSwatches() {
         item.className = 'swatch-item';
 
         const swatch = document.createElement('div');
-        swatch.className = `tile-swatch ${wallPattern === key ? 'active' : ''}`;
+        const activeWall = wallBrush || wallPattern;
+        swatch.className = `tile-swatch ${activeWall === key ? 'active' : ''}`;
         swatch.title = label;
 
         if (type === 'canvas' && canvas) {
@@ -879,9 +921,15 @@ function clampFixturesToWallHeight() {
 
 function countActiveTiles() {
     let count = 0;
-    for (let x = 0; x < gridWidth; x++) {
-        for (let y = 0; y < gridHeight; y++) {
-            if (gridData[x][y]) count += 1;
+    const cw = Math.ceil(gridWidth);
+    const ch = Math.ceil(gridHeight);
+    for (let x = 0; x < cw; x++) {
+        for (let y = 0; y < ch; y++) {
+            if (gridData[x][y]) {
+                const fracX = (x === cw - 1 && gridWidth % 1 !== 0) ? gridWidth % 1 : 1;
+                const fracY = (y === ch - 1 && gridHeight % 1 !== 0) ? gridHeight % 1 : 1;
+                count += fracX * fracY;
+            }
         }
     }
     return count;
@@ -1244,49 +1292,87 @@ function build3D() {
     const offsetX = (gridWidth * 1) / 2 - 0.5;
     const offsetZ = (gridHeight * 1) / 2 - 0.5;
 
-    for(let x=0; x<gridWidth; x++) {
-        for(let y=0; y<gridHeight; y++) {
+    const cw = Math.ceil(gridWidth);
+    const ch = Math.ceil(gridHeight);
+
+    for(let x=0; x<cw; x++) {
+        for(let y=0; y<ch; y++) {
             
             if (gridData[x][y] === 0) continue; // ถ้าช่องนี้ไม่มีพื้น ข้ามไป
 
+            const fracX = (x === cw - 1 && gridWidth % 1 !== 0) ? gridWidth % 1 : 1;
+            const fracY = (y === ch - 1 && gridHeight % 1 !== 0) ? gridHeight % 1 : 1;
+
             // 1. สร้างพื้น (Tile)
-            const baseTexture = tileTextures[tilePattern] || tileTextures[tileMeta?.key || ''];
-            const tileMaterial = baseTexture
-                ? new THREE.MeshStandardMaterial({ map: baseTexture, side: THREE.DoubleSide })
-                : new THREE.MeshStandardMaterial({ color: 0xe5e5e5, side: THREE.DoubleSide });
-            const tile = new THREE.Mesh(tileGeometry, tileMaterial);
+            const cellPattern = floorTextureData[`${x},${y}`] || tilePattern;
+            const tileMetaInfo = getTileMetaByKey(cellPattern) || tileMeta;
+            const baseTexture = tileTextures[cellPattern] || tileTextures[tileMetaInfo?.key || ''];
+            
+            let tileMaterial;
+            if (baseTexture) {
+                // Clone texture to avoid affecting others when adjusting repeat/offset for cut-off edge
+                const texClone = baseTexture.clone();
+                texClone.needsUpdate = true;
+                
+                // Adjust repeat according to fractional size
+                const baseRepeatX = texClone.repeat.x;
+                const baseRepeatY = texClone.repeat.y;
+                texClone.repeat.set(baseRepeatX * fracX, baseRepeatY * fracY);
+                // Adjust offset to keep pattern anchored top-left of the cell (since plane anchor is center)
+                // For a typical plane rendered with PlaneGeometry(frac, frac), UVs span 0..1
+                // By limiting repeating, we are slicing it. But we actually just need the geometry to be smaller and UV to be squished?
+                // Actually, standard PlaneGeometry maps 0..1 to the plane width. If we just change repeat, it stretches.
+                
+                tileMaterial = new THREE.MeshStandardMaterial({ map: texClone, side: THREE.DoubleSide });
+            } else {
+                tileMaterial = new THREE.MeshStandardMaterial({ color: 0xe5e5e5, side: THREE.DoubleSide });
+            }
+
+            // Custom Plane Geometry for fractional sizes
+            const cGeometry = new THREE.PlaneGeometry(fracX, fracY);
+            
+            // Fix UVs to cut off the texture instead of squishing it
+            const uvs = cGeometry.attributes.uv;
+            for (let i = 0; i < uvs.count; i++) {
+                uvs.setX(i, uvs.getX(i) * fracX);
+                uvs.setY(i, 1 - ((1 - uvs.getY(i)) * fracY)); // Top-Left anchor for Y
+            }
+
+            const tile = new THREE.Mesh(cGeometry, tileMaterial);
             tile.rotation.x = -Math.PI / 2; // นอนราบ
             tile.rotation.z = - (rotationData[x][y] * Math.PI / 2); // หมุนตามค่าที่เก็บไว้
-            tile.position.set(x - offsetX, 0, y - offsetZ);
-            tile.userData = { x, y, isTile: true }; // เก็บข้อมูลพิกัดไว้ใน mesh เพื่อใช้ตอนคลิก
+
+            if (flipData[x][y]) {
+                tile.scale.x = -1; // พลิกซ้ายขวา
+                // Adjust rotation direction if scaled negatively to keep rotation intuitive
+                // Not strictly needed but keeps coordinate space predictable
+            }
+
+            // Position adjustment: Since plane is smaller, shift it so its top-left corner is at the original top-left corner
+            const cx = x - offsetX - (1 - fracX) / 2;
+            const cz = y - offsetZ - (1 - fracY) / 2;
+            tile.position.set(cx, 0, cz);
+
+            tile.userData = { x, y, isTile: true, fracX, fracY }; // เก็บข้อมูลพิกัดไว้ใน mesh เพื่อใช้ตอนคลิก
             tile.receiveShadow = true;
             roomGroup.add(tile);
 
-            // 2. สร้างกำแพง (Wall Generation Algorithm)
-            // เช็ค 4 ทิศ (บน, ล่าง, ซ้าย, ขวา) ถ้าทิศไหนไม่มีเพื่อนบ้าน ให้สร้างกำแพง
-            const currentMat = wallMaterials[wallPattern];
-            if (currentMat?.map && currentMat.userData?.repeatYPerMeter) {
-                const repeatX = currentMat.userData.repeatX ?? 1;
-                const repeatY = currentMat.userData.repeatYPerMeter * wallHeight;
-                currentMat.map.repeat.set(repeatX, repeatY);
-                currentMat.map.needsUpdate = true;
-            }
-
-            // เช็คด้านบน (y-1 ใน Grid คือทิศ North ใน 3D)
+            // 2. สร้างกำแพง (Wall)
+            // เช็คด้านบน (y-1)
             if (y === 0 || gridData[x][y-1] === 0) {
-                createWall(x - offsetX, y - offsetZ, 'top', currentMat, x, y);
+                createWall(cx, cz - fracY/2, 'top', x, y, fracX);
             }
             // เช็คด้านล่าง
-            if (y === gridHeight-1 || gridData[x][y+1] === 0) {
-                createWall(x - offsetX, y - offsetZ, 'bottom', currentMat, x, y);
+            if (y === ch-1 || gridData[x][y+1] === 0) {
+                createWall(cx, cz + fracY/2, 'bottom', x, y, fracX);
             }
             // เช็คด้านซ้าย
             if (x === 0 || gridData[x-1][y] === 0) {
-                createWall(x - offsetX, y - offsetZ, 'left', currentMat, x, y);
+                createWall(cx - fracX/2, cz, 'left', x, y, fracY);
             }
             // เช็คด้านขวา
-            if (x === gridWidth-1 || gridData[x+1][y] === 0) {
-                createWall(x - offsetX, y - offsetZ, 'right', currentMat, x, y);
+            if (x === cw-1 || gridData[x+1][y] === 0) {
+                createWall(cx + fracX/2, cz, 'right', x, y, fracY);
             }
         }
     }
@@ -1294,34 +1380,49 @@ function build3D() {
     updatePriceSummary();
 }
 
-function createWall(x, z, side, material, gridX, gridY) {
+function createWall(x, z, side, gridX, gridY, segmentLength) {
     const wallKey = `${gridX},${gridY},${side}`;
     if (removedWalls.has(wallKey)) return;
+    
+    const cellWallPattern = wallTextureData[wallKey] || wallPattern;
+    const baseMat = wallMaterials[cellWallPattern] || wallMaterials['8851740036185']; // fallback
+    
+    // Clone material so we can adjust repeat mappings for fractional segmentLength individually
+    let material = baseMat;
+    if (baseMat?.map) {
+        material = baseMat.clone();
+        material.map = baseMat.map.clone();
+        material.map.needsUpdate = true;
+        if (baseMat.bumpMap) {
+            material.bumpMap = baseMat.bumpMap.clone();
+            material.bumpMap.needsUpdate = true;
+        }
+        const repeatX = (baseMat.userData?.repeatX ?? 2) * segmentLength;
+        const repeatY = (baseMat.userData?.repeatYPerMeter ?? 1) * wallHeight;
+        material.map.repeat.set(repeatX, repeatY);
+        if (material.bumpMap) material.bumpMap.repeat.set(repeatX, repeatY);
+    }
+    
     const h = parseFloat(wallHeight);
-    const wall = new THREE.Mesh(wallGeometry, material);
+    // Custom geometry to fit fractional lengths
+    const cWallGeom = new THREE.BoxGeometry(segmentLength, h, wallThickness);
     
-    // ปรับขนาดความสูง
-    wall.scale.y = h; 
+    // UV adjustment for side caps (so textures on sides of walls are mapped without stretching)
+    // Left as default is fine for simple walls usually.
     
-    // ตำแหน่งพื้นฐานคือกลางกระเบื้อง ยกขึ้นครึ่งนึงของความสูง
+    const wall = new THREE.Mesh(cWallGeom, material);
+    
+    // ตำแหน่งที่รับมาคือ กึ่งกลางขอบของ segment แล้ว ยกขึ้นครึ่งนึงของความสูง
     wall.position.set(x, h/2, z);
 
-    // ขยับไปไว้ที่ขอบตามทิศ
-    if (side === 'top') {
-        wall.position.z -= 0.5;
-    } else if (side === 'bottom') {
-        wall.position.z += 0.5;
-    } else if (side === 'left') {
-        wall.position.x -= 0.5;
-        wall.rotation.y = Math.PI / 2;
-    } else if (side === 'right') {
-        wall.position.x += 0.5;
+    // หมุนตามทิศ
+    if (side === 'left' || side === 'right') {
         wall.rotation.y = Math.PI / 2;
     }
 
     wall.castShadow = true;
     wall.receiveShadow = true;
-    wall.userData = { isWall: true, x: gridX, y: gridY, side };
+    wall.userData = { isWall: true, x: gridX, y: gridY, side, length: segmentLength };
     roomGroup.add(wall);
 }
 
@@ -1352,28 +1453,58 @@ window.toggleWallDeleteMode = function(enabled) {
     }
 }
 
+window.toggleTileFlipMode = function(enabled) {
+    tileFlipMode = enabled;
+}
+
 function setTilePattern(patternKey) {
-    tilePattern = patternKey;
+    if (!tileBrush) tileBrush = tilePattern;
+    tileBrush = patternKey;
     renderTileSwatches();
-    build3D();
-    recordHistorySnapshot();
 }
 
 function setWallTexture(patternKey) {
-    wallPattern = patternKey;
+    if (!wallBrush) wallBrush = wallPattern;
+    wallBrush = patternKey;
     const select = document.getElementById('wallTextureSelect');
     if (select) {
         select.value = patternKey;
     }
     renderWallSwatches();
+}
+
+window.fillAllTiles = function() {
+    tilePattern = tileBrush || tilePattern;
+    floorTextureData = {}; 
+    build3D();
+    recordHistorySnapshot();
+}
+
+window.fillAllWalls = function() {
+    wallPattern = wallBrush || wallPattern;
+    wallTextureData = {};
     build3D();
     recordHistorySnapshot();
 }
 
 window.rotateAllTiles = function() {
-    for(let x=0; x<gridWidth; x++) {
-        for(let y=0; y<gridHeight; y++) {
+    const cw = Math.ceil(gridWidth);
+    const ch = Math.ceil(gridHeight);
+    for(let x=0; x<cw; x++) {
+        for(let y=0; y<ch; y++) {
             if(gridData[x][y]) rotationData[x][y] = (rotationData[x][y] + 1) % 4;
+        }
+    }
+    build3D();
+    recordHistorySnapshot();
+}
+
+window.flipAllTiles = function() {
+    const cw = Math.ceil(gridWidth);
+    const ch = Math.ceil(gridHeight);
+    for(let x=0; x<cw; x++) {
+        for(let y=0; y<ch; y++) {
+            if(gridData[x][y]) flipData[x][y] = flipData[x][y] ? 0 : 1;
         }
     }
     build3D();
@@ -1427,6 +1558,72 @@ function onPointerDown(event) {
     }
 }
 
+function onCanvasClick(event) {
+    if (placementMode) return;
+    if (ignoreNextClick) {
+        ignoreNextClick = false;
+        return;
+    }
+    
+    // Check if dragging happened
+    if (dragMutatedState) {
+        dragMutatedState = false;
+        return;
+    }
+
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    raycaster.setFromCamera(mouse, camera);
+    const intersects = raycaster.intersectObjects(roomGroup.children, true);
+
+    if (intersects.length > 0) {
+        const hit = intersects[0];
+        const data = hit.object.userData;
+
+        // ถ้าคลิกพื้นกระจก/กระเบื้อง
+        if (data.isTile) {
+            const key = `${data.x},${data.y}`;
+            const targetBrush = tileBrush || tilePattern;
+            const currentPattern = floorTextureData[key] || tilePattern;
+            
+            if (tileFlipMode) {
+                // ถ้าอยู่ในโหมดกระจก คลิกคือการพลิกกลับด้านเสมอ
+                flipData[data.x][data.y] = flipData[data.x][data.y] ? 0 : 1;
+            } else {
+                // ถ้ายืนยันจะทาสีลายเดิม ให้เป็นการหมุนแทน (เพื่อให้ backward compatible UX เดิม)
+                if (currentPattern === targetBrush) {
+                    rotationData[data.x][data.y] = (rotationData[data.x][data.y] + 1) % 4;
+                } else {
+                    // ถ้าไม่เหมือน ให้ทาสีลายใหม่ใส่ช่องนี้
+                    floorTextureData[key] = targetBrush;
+                    // Reset flip/rotations back to default when applying new texture
+                    rotationData[data.x][data.y] = 0;
+                    flipData[data.x][data.y] = 0;
+                }
+            }
+            
+            build3D();
+            recordHistorySnapshot();
+        } 
+        // ถ้าคลิกกำแพง
+        else if (data.isWall) {
+            const wallKey = `${data.x},${data.y},${data.side}`;
+            if (wallDeleteMode) {
+                removedWalls.add(wallKey);
+                wallLayoutMode = WALL_LAYOUT_CUSTOM;
+                syncWallLayoutControls();
+            } else {
+                // ทาสีกำแพงด้วยลายที่เลือกอยู่
+                wallTextureData[wallKey] = wallBrush || wallPattern;
+            }
+            build3D();
+            recordHistorySnapshot();
+        }
+    }
+}
+
 function onPointerMove(event) {
     if (!isDraggingFixture || !draggingFixture || (event.buttons & 1) === 0) return;
     const rect = renderer.domElement.getBoundingClientRect();
@@ -1468,48 +1665,6 @@ function onContextMenu(event) {
         fixturesGroup.remove(target);
         ignoreNextClick = true;
         recordHistorySnapshot();
-    }
-}
-
-function onCanvasClick(event) {
-    if (ignoreNextClick) {
-        ignoreNextClick = false;
-        return;
-    }
-    // คำนวณตำแหน่งเมาส์
-    const rect = renderer.domElement.getBoundingClientRect();
-    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-    raycaster.setFromCamera(mouse, camera);
-    const intersects = raycaster.intersectObjects(roomGroup.children);
-
-    if (intersects.length > 0) {
-        if (wallDeleteMode) {
-            const wallHit = intersects.find(hit => hit.object.userData.isWall);
-            if (wallHit) {
-                const { x, y, side } = wallHit.object.userData;
-                const wallKey = `${x},${y},${side}`;
-                wallLayoutMode = WALL_LAYOUT_CUSTOM;
-                if (removedWalls.has(wallKey)) {
-                    removedWalls.delete(wallKey);
-                } else {
-                    removedWalls.add(wallKey);
-                }
-                syncWallLayoutControls();
-                build3D();
-                recordHistorySnapshot();
-            }
-            return;
-        }
-
-        const tileHit = intersects.find(hit => hit.object.userData.isTile);
-        if (tileHit) {
-            const { x, y } = tileHit.object.userData;
-            rotationData[x][y] = (rotationData[x][y] + 1) % 4;
-            build3D();
-            recordHistorySnapshot();
-        }
     }
 }
 
@@ -1615,7 +1770,37 @@ document.addEventListener('keydown', (event) => {
 renderWallTextureOptions();
 renderWallSwatches();
 renderTileSwatches();
-window.resetGrid();
+
+let loadedAutosave = false;
+try {
+    const autosave = window.localStorage?.getItem('pm69-floorplanner:autosave:v1');
+    if (autosave) {
+        const state = JSON.parse(autosave);
+        applyDesignState(state);
+        recordHistorySnapshot({ force: true });
+        
+        // Sync UI inputs after applying state
+        const gridWInput = document.getElementById('gridW');
+        const gridHInput = document.getElementById('gridH');
+        const wallHeightInput = document.getElementById('wallHeightInfo');
+        if (gridWInput) gridWInput.value = String(gridWidth);
+        if (gridHInput) gridHInput.value = String(gridHeight);
+        if (wallHeightInput) wallHeightInput.value = String(wallHeight);
+        
+        applySelectedWallLayoutPreset();
+        renderUI();
+        syncWallLayoutControls();
+        build3D();
+        renderFixtureSwatches();
+        updatePriceSummary();
+        loadedAutosave = true;
+    }
+} catch(e) {}
+
+if (!loadedAutosave) {
+    window.resetGrid();
+}
+
 initDraftSlotsUI({
     serializeDesignState,
     applyDesignState,
