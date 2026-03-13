@@ -24,6 +24,18 @@ export default function RootLayout({
           href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Sarabun:wght@300;400;500;600;700&display=swap"
           rel="stylesheet"
         />
+        {/* importmap for Three.js — must be in <head> before any module script */}
+        <script
+          type="importmap"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              imports: {
+                three: "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+              },
+            }),
+          }}
+        />
       </head>
       <body>
         <AuthProvider>
