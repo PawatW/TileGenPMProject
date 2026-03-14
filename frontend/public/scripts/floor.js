@@ -1811,26 +1811,84 @@ function onCanvasClick(event) {
 
         // ถ้าคลิกพื้นกระจก/กระเบื้อง
         if (data.isTile) {
-            const key = `${data.x},${data.y}`;
             const targetBrush = tileBrush || tilePattern;
-            const currentPattern = floorTextureData[key] || tilePattern;
-            
-            if (tileFlipMode) {
-                // ถ้าอยู่ในโหมดกระจก คลิกคือการพลิกกลับด้านเสมอ
-                flipData[data.x][data.y] = flipData[data.x][data.y] ? 0 : 1;
-            } else {
-                // ถ้ายืนยันจะทาสีลายเดิม ให้เป็นการหมุนแทน (เพื่อให้ backward compatible UX เดิม)
-                if (currentPattern === targetBrush) {
-                    rotationData[data.x][data.y] = (rotationData[data.x][data.y] + 1) % 4;
-                } else {
-                    // ถ้าไม่เหมือน ให้ทาสีลายใหม่ใส่ช่องนี้
-                    floorTextureData[key] = targetBrush;
-                    // Reset flip/rotations back to default when applying new texture
-                    rotationData[data.x][data.y] = 0;
-                    flipData[data.x][data.y] = 0;
+
+            // --- หา footprint ของกระเบื้องที่ถูกคลิก ---
+            // ใช้ world position จุดที่ cursor ชนพื้น
+            const wx = hit.point.x;
+            const wz = hit.point.z;
+
+            const brushMeta = getTileMetaByKey(targetBrush);
+            const { widthM, lengthM } = getTileSizeInMeters(brushMeta);
+            const safeW = (widthM > 0 && Number.isFinite(widthM)) ? widthM : 0.6;
+            const safeL = (lengthM > 0 && Number.isFinite(lengthM)) ? lengthM : 0.6;
+            const tileOff = tileOffsets[targetBrush] || { x: 0, y: 0 };
+
+            // index ของกระเบื้องที่ถูกคลิก
+            const ti = Math.floor(wx / safeW + tileOff.x);
+            const tj = Math.floor(wz / safeL + tileOff.y);
+
+            // world bounds ของกระเบื้องชิ้นนั้น
+            const tileX0 = (ti - tileOff.x) * safeW;
+            const tileX1 = (ti + 1 - tileOff.x) * safeW;
+            const tileZ0 = (tj - tileOff.y) * safeL;
+            const tileZ1 = (tj + 1 - tileOff.y) * safeL;
+
+            // รวบรวม grid cells ทุกช่องที่ทับกับ footprint ของกระเบื้องชิ้นนี้
+            const cw = Math.ceil(gridWidth);
+            const ch = Math.ceil(gridHeight);
+            const offsetX = gridWidth / 2 - 0.5;
+            const offsetZ = gridHeight / 2 - 0.5;
+
+            const cellsToUpdate = [];
+            for (let gx = 0; gx < cw; gx++) {
+                for (let gy = 0; gy < ch; gy++) {
+                    if (gridData[gx][gy] === 0) continue;
+                    const fracX = (gx === cw - 1 && gridWidth % 1 !== 0) ? gridWidth % 1 : 1;
+                    const fracY = (gy === ch - 1 && gridHeight % 1 !== 0) ? gridHeight % 1 : 1;
+                    const cx = gx - offsetX - (1 - fracX) / 2;
+                    const cz = gy - offsetZ - (1 - fracY) / 2;
+                    const cellX0 = cx - fracX / 2;
+                    const cellX1 = cx + fracX / 2;
+                    const cellZ0 = cz - fracY / 2;
+                    const cellZ1 = cz + fracY / 2;
+                    // overlap check
+                    if (cellX0 < tileX1 - 1e-9 && cellX1 > tileX0 + 1e-9 &&
+                        cellZ0 < tileZ1 - 1e-9 && cellZ1 > tileZ0 + 1e-9) {
+                        cellsToUpdate.push({ gx, gy });
+                    }
                 }
             }
-            
+
+            // fallback: ถ้าไม่มี cell overlap (เช่น tile offset แปลกๆ) ใช้ cell ที่ raycaster ชนแทน
+            if (cellsToUpdate.length === 0) {
+                cellsToUpdate.push({ gx: data.x, gy: data.y });
+            }
+
+            if (tileFlipMode) {
+                // โหมดกระจก: สลับ flip ทุก cell ใน footprint
+                for (const { gx, gy } of cellsToUpdate) {
+                    flipData[gx][gy] = flipData[gx][gy] ? 0 : 1;
+                }
+            } else {
+                // ถ้าทุก cell ใน footprint มีลายเดียวกับ brush อยู่แล้ว → หมุน
+                const allSame = cellsToUpdate.every(
+                    ({ gx, gy }) => (floorTextureData[`${gx},${gy}`] || tilePattern) === targetBrush
+                );
+                if (allSame) {
+                    for (const { gx, gy } of cellsToUpdate) {
+                        rotationData[gx][gy] = (rotationData[gx][gy] + 1) % 4;
+                    }
+                } else {
+                    // ทาสีทุก cell ใน footprint พร้อมกัน
+                    for (const { gx, gy } of cellsToUpdate) {
+                        floorTextureData[`${gx},${gy}`] = targetBrush;
+                        rotationData[gx][gy] = 0;
+                        flipData[gx][gy] = 0;
+                    }
+                }
+            }
+
             build3D();
             recordHistorySnapshot();
         } 
