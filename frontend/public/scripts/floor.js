@@ -1353,9 +1353,10 @@ function build3D() {
                 if (!Number.isFinite(tilesPerMeterX)) tilesPerMeterX = 1;
                 if (!Number.isFinite(tilesPerMeterY)) tilesPerMeterY = 1;
 
-                // First, reset the base repeat based on the physical dimension of the tile 
+                // First, reset the base repeat based on the physical dimension of the tile
                 // Then multiply by fracX/fracY if this is a cut-off edge cell.
                 texClone.repeat.set(tilesPerMeterX * fracX, tilesPerMeterY * fracY);
+                tileMaterial = new THREE.MeshStandardMaterial({ map: texClone, side: THREE.DoubleSide });
             } else {
                 tileMaterial = new THREE.MeshStandardMaterial({ color: 0xe5e5e5, side: THREE.DoubleSide });
             }

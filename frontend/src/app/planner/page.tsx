@@ -162,9 +162,9 @@ export default function PlannerPage() {
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
             >
-              <input type="number" id="customTileW" defaultValue={60} min={1} style={{ flex: 1, padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border-color)", background: "var(--bg-primary)", color: "var(--text-primary)" }} placeholder="กว้าง" />
-              <input type="number" id="customTileL" defaultValue={60} min={1} style={{ flex: 1, padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border-color)", background: "var(--bg-primary)", color: "var(--text-primary)" }} placeholder="ยาว" />
-              <select id="customTileUnit" style={{ padding: "4px", borderRadius: "4px", border: "1px solid var(--border-color)", background: "var(--bg-primary)", color: "var(--text-primary)" }}>
+              <input type="number" id="customTileW" defaultValue={60} min={1} style={{ flex: 1, minWidth: 0, padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)" }} placeholder="กว้าง" />
+              <input type="number" id="customTileL" defaultValue={60} min={1} style={{ flex: 1, minWidth: 0, padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)" }} placeholder="ยาว" />
+              <select id="customTileUnit" style={{ padding: "4px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", width: "auto", flexShrink: 0 }}>
                 <option value="cm">cm</option>
                 <option value="inch">inch</option>
                 <option value="m">m</option>
