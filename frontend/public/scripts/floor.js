@@ -970,10 +970,10 @@ function getTileSizeInMeters(tileMeta) {
     const w = tileMeta?.width || 60;
     const l = tileMeta?.length || 60;
     const unit = tileMeta?.unit || 'cm';
-    if (unit === 'inch') {
-        return { widthM: w * 0.0254, lengthM: l * 0.0254 };
-    }
-    return { widthM: w / 100, lengthM: l / 100 };
+    if (unit === 'inch') return { widthM: w * 0.0254, lengthM: l * 0.0254 };
+    if (unit === 'm')    return { widthM: w,           lengthM: l };
+    if (unit === 'mm')   return { widthM: w / 1000,    lengthM: l / 1000 };
+    return { widthM: w / 100, lengthM: l / 100 }; // cm (default)
 }
 
 function calculatePricingSummary() {
