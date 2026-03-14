@@ -39,6 +39,7 @@ let wallBrush = null;
 let placementMode = null;
 let wallDeleteMode = false;
 let tileFlipMode = false;
+let tilePaintMode = 'footprint'; // 'cell' | 'footprint'
 let ignoreNextClick = false;
 let isDraggingFixture = false;
 let draggingFixture = null;
@@ -608,6 +609,14 @@ let roomGroup = new THREE.Group();
 scene.add(roomGroup);
 const fixturesGroup = new THREE.Group();
 scene.add(fixturesGroup);
+
+// Hover preview group — แสดง highlight ก่อนคลิก (footprint mode)
+const hoverGroup = new THREE.Group();
+scene.add(hoverGroup);
+const hoverMaterial = new THREE.MeshBasicMaterial({
+    color: 0x3b82f6, transparent: true, opacity: 0.38,
+    depthWrite: false, side: THREE.DoubleSide,
+});
 
 // Raycaster สำหรับคลิกเลือกกระเบื้อง
 const raycaster = new THREE.Raycaster();
@@ -1578,6 +1587,10 @@ window.toggleTileFlipMode = function(enabled) {
     tileFlipMode = enabled;
 }
 
+window.setTilePaintMode = function(mode) {
+    tilePaintMode = mode; // 'cell' | 'footprint'
+}
+
 window.setTileOffsetMode = function(enabled) {
     tileOffsetDragMode = enabled;
     renderer.domElement.style.cursor = enabled ? 'grab' : 'default';
@@ -1588,6 +1601,22 @@ window.setTileOffsetMode = function(enabled) {
         controls.enabled = true;
     }
 }
+
+// ปรับ tile offset ให้ขอบกระเบื้องตรงกับขอบห้อง (room-aligned snap)
+window.snapTileToRoom = function() {
+    const key = tileBrush || tilePattern;
+    const meta = getTileMetaByKey(key);
+    const { widthM, lengthM } = getTileSizeInMeters(meta);
+    const safeW = (widthM > 0 && Number.isFinite(widthM)) ? widthM : 0.6;
+    const safeL = (lengthM > 0 && Number.isFinite(lengthM)) ? lengthM : 0.6;
+    const roomMinX = -(gridWidth / 2);
+    const roomMinZ = -(gridHeight / 2);
+    // หา offset ที่ทำให้กระเบื้องชิ้นแรกเริ่มที่ขอบซ้าย/บนของห้องพอดี
+    const offX = Math.ceil(roomMinX / safeW) - roomMinX / safeW;
+    const offZ = Math.ceil(roomMinZ / safeL) - roomMinZ / safeL;
+    tileOffsets[key] = { x: offX, y: offZ };
+    build3D();
+};
 
 window.resetTileOffset = function() {
     const pattern = tileBrush || tilePattern;
@@ -1723,6 +1752,65 @@ renderer.domElement.addEventListener('pointerdown', onPointerDown, false);
 renderer.domElement.addEventListener('pointermove', onPointerMove, false);
 renderer.domElement.addEventListener('pointerup', onPointerUp, false);
 renderer.domElement.addEventListener('contextmenu', onContextMenu, false);
+renderer.domElement.addEventListener('mouseleave', clearHoverHighlight, false);
+
+// ── Hover highlight helpers ────────────────────────────────────────────────
+function clearHoverHighlight() {
+    while (hoverGroup.children.length > 0) hoverGroup.remove(hoverGroup.children[0]);
+}
+
+/**
+ * คำนวณ grid cells ที่อยู่ใน tile footprint ของจุด (wx, wz)
+ * คืน array ของ { gx, gy, cx, cz, fracX, fracY }
+ */
+function computeFootprintCells(wx, wz, patternKey) {
+    const meta = getTileMetaByKey(patternKey);
+    const { widthM, lengthM } = getTileSizeInMeters(meta);
+    const safeW = (widthM > 0 && Number.isFinite(widthM)) ? widthM : 0.6;
+    const safeL = (lengthM > 0 && Number.isFinite(lengthM)) ? lengthM : 0.6;
+    const tileOff = tileOffsets[patternKey] || { x: 0, y: 0 };
+
+    const ti = Math.floor(wx / safeW + tileOff.x);
+    const tj = Math.floor(wz / safeL + tileOff.y);
+    const tileX0 = (ti - tileOff.x) * safeW;
+    const tileX1 = (ti + 1 - tileOff.x) * safeW;
+    const tileZ0 = (tj - tileOff.y) * safeL;
+    const tileZ1 = (tj + 1 - tileOff.y) * safeL;
+
+    const cw = Math.ceil(gridWidth);
+    const ch = Math.ceil(gridHeight);
+    const offsetX = gridWidth / 2 - 0.5;
+    const offsetZ = gridHeight / 2 - 0.5;
+    const cells = [];
+    for (let gx = 0; gx < cw; gx++) {
+        for (let gy = 0; gy < ch; gy++) {
+            if (gridData[gx][gy] === 0) continue;
+            const fracX = (gx === cw - 1 && gridWidth % 1 !== 0) ? gridWidth % 1 : 1;
+            const fracY = (gy === ch - 1 && gridHeight % 1 !== 0) ? gridHeight % 1 : 1;
+            const cx = gx - offsetX - (1 - fracX) / 2;
+            const cz = gy - offsetZ - (1 - fracY) / 2;
+            if ((cx - fracX / 2) < tileX1 - 1e-9 && (cx + fracX / 2) > tileX0 + 1e-9 &&
+                (cz - fracY / 2) < tileZ1 - 1e-9 && (cz + fracY / 2) > tileZ0 + 1e-9) {
+                cells.push({ gx, gy, cx, cz, fracX, fracY });
+            }
+        }
+    }
+    return cells;
+}
+
+function updateHoverHighlight(wx, wz, patternKey) {
+    clearHoverHighlight();
+    if (tilePaintMode !== 'footprint') return;
+    const cells = computeFootprintCells(wx, wz, patternKey);
+    for (const { cx, cz, fracX, fracY } of cells) {
+        const geo = new THREE.PlaneGeometry(fracX, fracY);
+        const mesh = new THREE.Mesh(geo, hoverMaterial);
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.position.set(cx, 0.015, cz);
+        hoverGroup.add(mesh);
+    }
+}
+// ──────────────────────────────────────────────────────────────────────────
 
 function onPointerDown(event) {
     if (event.button !== 0) return;
@@ -1812,78 +1900,34 @@ function onCanvasClick(event) {
         // ถ้าคลิกพื้นกระจก/กระเบื้อง
         if (data.isTile) {
             const targetBrush = tileBrush || tilePattern;
-
-            // --- หา footprint ของกระเบื้องที่ถูกคลิก ---
-            // ใช้ world position จุดที่ cursor ชนพื้น
-            const wx = hit.point.x;
-            const wz = hit.point.z;
-
-            const brushMeta = getTileMetaByKey(targetBrush);
-            const { widthM, lengthM } = getTileSizeInMeters(brushMeta);
-            const safeW = (widthM > 0 && Number.isFinite(widthM)) ? widthM : 0.6;
-            const safeL = (lengthM > 0 && Number.isFinite(lengthM)) ? lengthM : 0.6;
-            const tileOff = tileOffsets[targetBrush] || { x: 0, y: 0 };
-
-            // index ของกระเบื้องที่ถูกคลิก
-            const ti = Math.floor(wx / safeW + tileOff.x);
-            const tj = Math.floor(wz / safeL + tileOff.y);
-
-            // world bounds ของกระเบื้องชิ้นนั้น
-            const tileX0 = (ti - tileOff.x) * safeW;
-            const tileX1 = (ti + 1 - tileOff.x) * safeW;
-            const tileZ0 = (tj - tileOff.y) * safeL;
-            const tileZ1 = (tj + 1 - tileOff.y) * safeL;
-
-            // รวบรวม grid cells ทุกช่องที่ทับกับ footprint ของกระเบื้องชิ้นนี้
-            const cw = Math.ceil(gridWidth);
-            const ch = Math.ceil(gridHeight);
-            const offsetX = gridWidth / 2 - 0.5;
-            const offsetZ = gridHeight / 2 - 0.5;
-
-            const cellsToUpdate = [];
-            for (let gx = 0; gx < cw; gx++) {
-                for (let gy = 0; gy < ch; gy++) {
-                    if (gridData[gx][gy] === 0) continue;
-                    const fracX = (gx === cw - 1 && gridWidth % 1 !== 0) ? gridWidth % 1 : 1;
-                    const fracY = (gy === ch - 1 && gridHeight % 1 !== 0) ? gridHeight % 1 : 1;
-                    const cx = gx - offsetX - (1 - fracX) / 2;
-                    const cz = gy - offsetZ - (1 - fracY) / 2;
-                    const cellX0 = cx - fracX / 2;
-                    const cellX1 = cx + fracX / 2;
-                    const cellZ0 = cz - fracY / 2;
-                    const cellZ1 = cz + fracY / 2;
-                    // overlap check
-                    if (cellX0 < tileX1 - 1e-9 && cellX1 > tileX0 + 1e-9 &&
-                        cellZ0 < tileZ1 - 1e-9 && cellZ1 > tileZ0 + 1e-9) {
-                        cellsToUpdate.push({ gx, gy });
-                    }
-                }
-            }
-
-            // fallback: ถ้าไม่มี cell overlap (เช่น tile offset แปลกๆ) ใช้ cell ที่ raycaster ชนแทน
-            if (cellsToUpdate.length === 0) {
-                cellsToUpdate.push({ gx: data.x, gy: data.y });
-            }
-
             const clickedGx = data.x;
             const clickedGy = data.y;
             const currentPattern = floorTextureData[`${clickedGx},${clickedGy}`] || tilePattern;
 
             if (tileFlipMode) {
-                // โหมดกระจก: สลับ flip เฉพาะ cell ที่คลิก (ควบคุมได้ทีละ cell)
+                // โหมดกระจก: สลับ flip เฉพาะ cell ที่คลิก
                 flipData[clickedGx][clickedGy] = flipData[clickedGx][clickedGy] ? 0 : 1;
             } else if (currentPattern === targetBrush) {
-                // คลิก cell ที่มีลายเดิมอยู่แล้ว → หมุน เฉพาะ cell นั้น
+                // คลิก cell ที่มีลายเดิมอยู่แล้ว → หมุนเฉพาะ cell นั้น
                 rotationData[clickedGx][clickedGy] = (rotationData[clickedGx][clickedGy] + 1) % 4;
             } else {
-                // วางลายใหม่ → ทาสีทุก cell ใน footprint พร้อมกัน
-                for (const { gx, gy } of cellsToUpdate) {
-                    floorTextureData[`${gx},${gy}`] = targetBrush;
-                    rotationData[gx][gy] = 0;
-                    flipData[gx][gy] = 0;
+                // วางลายใหม่
+                if (tilePaintMode === 'footprint') {
+                    const footprint = computeFootprintCells(hit.point.x, hit.point.z, targetBrush);
+                    const targets = footprint.length > 0 ? footprint : [{ gx: clickedGx, gy: clickedGy }];
+                    for (const { gx, gy } of targets) {
+                        floorTextureData[`${gx},${gy}`] = targetBrush;
+                        rotationData[gx][gy] = 0;
+                        flipData[gx][gy] = 0;
+                    }
+                } else {
+                    floorTextureData[`${clickedGx},${clickedGy}`] = targetBrush;
+                    rotationData[clickedGx][clickedGy] = 0;
+                    flipData[clickedGx][clickedGy] = 0;
                 }
             }
 
+            clearHoverHighlight();
             build3D();
             recordHistorySnapshot();
         } 
@@ -1927,6 +1971,21 @@ function onPointerMove(event) {
             build3D();
         }
         return;
+    }
+
+    // Hover highlight preview (เฉพาะตอนไม่กดปุ่ม)
+    if ((event.buttons & 1) === 0 && tilePaintMode === 'footprint' && !tileOffsetDragMode) {
+        const rect2 = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((event.clientX - rect2.left) / rect2.width) * 2 - 1;
+        mouse.y = -((event.clientY - rect2.top) / rect2.height) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        const hoverHits = raycaster.intersectObjects(roomGroup.children, true);
+        const hoverTile = hoverHits.find(h => h.object.userData.isTile);
+        if (hoverTile) {
+            updateHoverHighlight(hoverTile.point.x, hoverTile.point.z, tileBrush || tilePattern);
+        } else {
+            clearHoverHighlight();
+        }
     }
 
     if (!isDraggingFixture || !draggingFixture || (event.buttons & 1) === 0) return;
