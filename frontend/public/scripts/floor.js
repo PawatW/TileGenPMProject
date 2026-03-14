@@ -212,6 +212,7 @@ function applyGridDimensionsFromInputs({ commitInputValue = false, recordHistory
         if (!Number.isFinite(n)) return 0;
         return ((Math.round(n) % 4) + 4) % 4;
     }));
+    flipData = normalizeGrid2D(flipData, gridWidth, gridHeight, 0).map(col => col.map(v => (v ? 1 : 0)));
 
     applySelectedWallLayoutPreset();
     placementMode = null;
@@ -254,6 +255,7 @@ function serializeDesignState() {
         flipData,
         floorTextureData,
         wallTextureData,
+        customTiles: tilePatternList.filter(t => t.key.startsWith('custom_')),
         removedWalls: Array.from(removedWalls),
         fixtures
     };
@@ -287,6 +289,16 @@ function applyDesignState(state) {
         return ((Math.round(n) % 4) + 4) % 4;
     }));
     flipData = normalizeGrid2D(state.flipData, gridWidth, gridHeight, 0).map(col => col.map(v => (v ? 1 : 0)));
+
+    if (Array.isArray(state.customTiles)) {
+        state.customTiles.forEach(customTile => {
+            if (!tilePatternList.some(t => t.key === customTile.key)) {
+                tilePatternList.push(customTile);
+                tileTextures[customTile.key] = loadImageTileTexture(customTile.url, 2);
+            }
+        });
+        renderTileSwatches();
+    }
 
     floorTextureData = state.floorTextureData || {};
     wallTextureData = state.wallTextureData || {};
@@ -1314,16 +1326,36 @@ function build3D() {
                 const texClone = baseTexture.clone();
                 texClone.needsUpdate = true;
                 
-                // Adjust repeat according to fractional size
-                const baseRepeatX = texClone.repeat.x;
-                const baseRepeatY = texClone.repeat.y;
-                texClone.repeat.set(baseRepeatX * fracX, baseRepeatY * fracY);
-                // Adjust offset to keep pattern anchored top-left of the cell (since plane anchor is center)
-                // For a typical plane rendered with PlaneGeometry(frac, frac), UVs span 0..1
-                // By limiting repeating, we are slicing it. But we actually just need the geometry to be smaller and UV to be squished?
-                // Actually, standard PlaneGeometry maps 0..1 to the plane width. If we just change repeat, it stretches.
-                
-                tileMaterial = new THREE.MeshStandardMaterial({ map: texClone, side: THREE.DoubleSide });
+                // Calculate physical multiplier based on tile metadata (convert to meters)
+                let tilesPerMeterX = 1;
+                let tilesPerMeterY = 1;
+
+                if (tileMetaInfo && tileMetaInfo.width && tileMetaInfo.length) {
+                    const toMeters = (val, unit) => {
+                        const numericVal = parseFloat(val);
+                        if (!Number.isFinite(numericVal)) return 1;
+                        if (unit === 'cm') return numericVal / 100;
+                        if (unit === 'inch') return numericVal * 0.0254;
+                        if (unit === 'mm') return numericVal / 1000;
+                        if (unit === 'm') return numericVal;
+                        return numericVal; // fallback
+                    };
+                    const wM = toMeters(tileMetaInfo.width, tileMetaInfo.unit || 'cm');
+                    const lM = toMeters(tileMetaInfo.length, tileMetaInfo.unit || 'cm');
+                    
+                    if (Number.isFinite(wM) && wM > 0 && Number.isFinite(lM) && lM > 0) {
+                        tilesPerMeterX = 1 / wM;
+                        tilesPerMeterY = 1 / lM;
+                    }
+                }
+
+                // Make sure NaN doesn't crash the scaling vector
+                if (!Number.isFinite(tilesPerMeterX)) tilesPerMeterX = 1;
+                if (!Number.isFinite(tilesPerMeterY)) tilesPerMeterY = 1;
+
+                // First, reset the base repeat based on the physical dimension of the tile 
+                // Then multiply by fracX/fracY if this is a cut-off edge cell.
+                texClone.repeat.set(tilesPerMeterX * fracX, tilesPerMeterY * fracY);
             } else {
                 tileMaterial = new THREE.MeshStandardMaterial({ color: 0xe5e5e5, side: THREE.DoubleSide });
             }
@@ -1455,6 +1487,71 @@ window.toggleWallDeleteMode = function(enabled) {
 
 window.toggleTileFlipMode = function(enabled) {
     tileFlipMode = enabled;
+}
+
+window.handleCustomTileUpload = function(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const wInput = document.getElementById('customTileW');
+    const lInput = document.getElementById('customTileL');
+    const uInput = document.getElementById('customTileUnit');
+    const w = parseFloat(wInput?.value || '60');
+    const l = parseFloat(lInput?.value || '60');
+    const unit = uInput?.value || 'cm';
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+            // Compress and scale down
+            const canvas = document.createElement('canvas');
+            const MAX_SIZE = 512;
+            let width = img.width;
+            let height = img.height;
+
+            if (width > height) {
+                if (width > MAX_SIZE) {
+                    height *= MAX_SIZE / width;
+                    width = MAX_SIZE;
+                }
+            } else {
+                if (height > MAX_SIZE) {
+                    width *= MAX_SIZE / height;
+                    height = MAX_SIZE;
+                }
+            }
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
+            const customKey = `custom_${Date.now()}`;
+            // Add to catalog
+            tilePatternList.push({
+                key: customKey,
+                label: `ลายส่วนตัว (${w}x${l}${unit})`,
+                type: 'image',
+                url: dataUrl,
+                width: w,
+                length: l,
+                unit: unit,
+            });
+
+            // Create Texture for THREE
+            tileTextures[customKey] = loadImageTileTexture(dataUrl, 2);
+
+            // Select it explicitly
+            setTilePattern(customKey);
+
+            // Reset input
+            e.target.value = '';
+        };
+        img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
 }
 
 function setTilePattern(patternKey) {
@@ -1778,14 +1875,6 @@ try {
         const state = JSON.parse(autosave);
         applyDesignState(state);
         recordHistorySnapshot({ force: true });
-        
-        // Sync UI inputs after applying state
-        const gridWInput = document.getElementById('gridW');
-        const gridHInput = document.getElementById('gridH');
-        const wallHeightInput = document.getElementById('wallHeightInfo');
-        if (gridWInput) gridWInput.value = String(gridWidth);
-        if (gridHInput) gridHInput.value = String(gridHeight);
-        if (wallHeightInput) wallHeightInput.value = String(wallHeight);
         
         applySelectedWallLayoutPreset();
         renderUI();

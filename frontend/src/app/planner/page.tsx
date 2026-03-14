@@ -154,6 +154,28 @@ export default function PlannerPage() {
           <button className="btn-outline" style={{ marginTop: "12px", width: "100%", justifyContent: "center" }} onClick={() => (window as any).fillAllTiles?.()}>
             เทลายนี้ทั้งห้อง (Fill Room)
           </button>
+          
+          <div style={{ marginTop: "16px", padding: "12px", backgroundColor: "var(--bg-secondary)", borderRadius: "8px" }}>
+            <span className="field-label" style={{ marginBottom: "8px", display: "block" }}>เพิ่มลายกระเบื้องของคุณเอง</span>
+            <div 
+              style={{ display: "flex", gap: "8px", marginBottom: "8px", position: "relative", zIndex: 100 }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <input type="number" id="customTileW" defaultValue={60} min={1} style={{ flex: 1, padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border-color)", background: "var(--bg-primary)", color: "var(--text-primary)" }} placeholder="กว้าง" />
+              <input type="number" id="customTileL" defaultValue={60} min={1} style={{ flex: 1, padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border-color)", background: "var(--bg-primary)", color: "var(--text-primary)" }} placeholder="ยาว" />
+              <select id="customTileUnit" style={{ padding: "4px", borderRadius: "4px", border: "1px solid var(--border-color)", background: "var(--bg-primary)", color: "var(--text-primary)" }}>
+                <option value="cm">cm</option>
+                <option value="inch">inch</option>
+                <option value="m">m</option>
+              </select>
+            </div>
+            <input type="file" id="customTileFile" accept="image/*" style={{ display: "none" }} onChange={(e) => (window as any).handleCustomTileUpload?.(e)} />
+            <button className="draft-btn primary" style={{ width: "100%", justifyContent: "center" }} onClick={() => document.getElementById('customTileFile')?.click()}>
+              อัปโหลดรูปลายกระเบื้อง
+            </button>
+            <span style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginTop: "8px", textAlign: "center" }}>*รูปจะถูกย่อไม่เกิน 512px อัตโนมัติ</span>
+          </div>
         </div>
 
         {/* Section: Fixtures */}
