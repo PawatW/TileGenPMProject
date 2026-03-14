@@ -962,26 +962,65 @@ function getTileSizeInMeters(tileMeta) {
 }
 
 function calculatePricingSummary() {
-    const totalAreaSqm = countActiveTiles();
-    const tileMeta = getTileMetaByKey(tilePattern);
-    const { widthM, lengthM } = getTileSizeInMeters(tileMeta);
-    const areaPerTile = Math.max(widthM * lengthM, 0.0001);
-    const rawTilesNeeded = totalAreaSqm > 0 ? totalAreaSqm / areaPerTile : 0;
-    const tilesWithWaste = totalAreaSqm > 0 ? Math.ceil(rawTilesNeeded * 1.05) : 0;
-    const tilesPerBox = Math.max(1, Math.ceil(Number(tileMeta?.tilesPerBox) || 1));
-    const pricePerBox = Math.max(0, Number(tileMeta?.pricePerBox) || 0);
-    const boxCount = tilesWithWaste > 0 ? Math.ceil(tilesWithWaste / tilesPerBox) : 0;
-    const totalPrice = boxCount * pricePerBox;
+    const cw = Math.ceil(gridWidth);
+    const ch = Math.ceil(gridHeight);
+
+    // รวมพื้นที่แยกตามลายกระเบื้องแต่ละช่อง
+    const areaByPattern = {};
+    let totalAreaSqm = 0;
+
+    for (let x = 0; x < cw; x++) {
+        for (let y = 0; y < ch; y++) {
+            if (!gridData[x][y]) continue;
+            const fracX = (x === cw - 1 && gridWidth % 1 !== 0) ? gridWidth % 1 : 1;
+            const fracY = (y === ch - 1 && gridHeight % 1 !== 0) ? gridHeight % 1 : 1;
+            const cellArea = fracX * fracY;
+            const cellPattern = floorTextureData[`${x},${y}`] || tilePattern;
+            areaByPattern[cellPattern] = (areaByPattern[cellPattern] || 0) + cellArea;
+            totalAreaSqm += cellArea;
+        }
+    }
+
+    // คำนวณแต่ละกลุ่มลาย
+    let totalRawTiles = 0;
+    let totalTilesWithWaste = 0;
+    let totalBoxCount = 0;
+    let totalPrice = 0;
+
+    const groups = Object.entries(areaByPattern).map(([patternKey, area]) => {
+        const meta = getTileMetaByKey(patternKey);
+        const { widthM, lengthM } = getTileSizeInMeters(meta);
+        const areaPerTile = Math.max(widthM * lengthM, 0.0001);
+        const rawTiles = area / areaPerTile;
+        const tilesWithWaste = Math.ceil(rawTiles * 1.05);
+        const tilesPerBox = Math.max(1, Math.ceil(Number(meta?.tilesPerBox) || 1));
+        const pricePerBox = Math.max(0, Number(meta?.pricePerBox) || 0);
+        const boxes = tilesWithWaste > 0 ? Math.ceil(tilesWithWaste / tilesPerBox) : 0;
+        const price = boxes * pricePerBox;
+
+        totalRawTiles += rawTiles;
+        totalTilesWithWaste += tilesWithWaste;
+        totalBoxCount += boxes;
+        totalPrice += price;
+
+        return { patternKey, area, rawTiles, tilesWithWaste, tilesPerBox, pricePerBox, boxes, price };
+    });
+
+    // ข้อมูล primary tile (สำหรับ backward compat กับ quotation)
+    const primaryGroup = groups.find(g => g.patternKey === tilePattern) || groups[0];
+    const primaryMeta = getTileMetaByKey(primaryGroup?.patternKey || tilePattern);
+    const { widthM: pW, lengthM: pL } = getTileSizeInMeters(primaryMeta);
 
     return {
         totalAreaSqm,
-        areaPerTile,
-        rawTilesNeeded,
-        tilesWithWaste,
-        tilesPerBox,
-        boxCount,
-        pricePerBox,
-        totalPrice
+        areaPerTile: Math.max(pW * pL, 0.0001),
+        rawTilesNeeded: totalRawTiles,
+        tilesWithWaste: totalTilesWithWaste,
+        tilesPerBox: primaryGroup?.tilesPerBox || 1,
+        boxCount: totalBoxCount,
+        pricePerBox: primaryGroup?.pricePerBox || 0,
+        totalPrice,
+        groups
     };
 }
 
@@ -1280,7 +1319,7 @@ function updatePriceSummary() {
 
     pricingSummary = calculatePricingSummary();
 
-    if (totalAreaEl) totalAreaEl.textContent = pricingSummary.totalAreaSqm.toString();
+    if (totalAreaEl) totalAreaEl.textContent = pricingSummary.totalAreaSqm.toFixed(2);
     if (tileTotalCountEl) tileTotalCountEl.textContent = pricingSummary.tilesWithWaste.toString();
     if (boxCountEl) boxCountEl.textContent = pricingSummary.boxCount.toString();
     if (totalPriceEl) totalPriceEl.textContent = `฿ ${formatCurrency(pricingSummary.totalPrice)}`;
