@@ -48,6 +48,13 @@ const historyStack = [];
 let historyIndex = -1;
 let suppressHistoryRecording = false;
 let dragMutatedState = false;
+
+// Tile offset drag state
+let tileOffsets = {};             // { [patternKey]: { x, y } } — UV offset in tile units
+let tileOffsetDragMode = false;   // โหมดลากขยับตำแหน่งกระเบื้อง
+let isDraggingTileOffset = false;
+let tileOffsetDragPattern = null;
+let tileOffsetDragLastPos = null; // THREE.Vector3
 const WALL_LAYOUT_OPEN = 'open';
 const WALL_LAYOUT_FULL = 'full';
 const WALL_LAYOUT_CUSTOM = 'custom';
@@ -257,6 +264,7 @@ function serializeDesignState() {
         wallTextureData,
         customTiles: tilePatternList.filter(t => t.key.startsWith('custom_')),
         removedWalls: Array.from(removedWalls),
+        tileOffsets,
         fixtures
     };
 }
@@ -302,6 +310,11 @@ function applyDesignState(state) {
 
     floorTextureData = state.floorTextureData || {};
     wallTextureData = state.wallTextureData || {};
+    if (state.tileOffsets && typeof state.tileOffsets === 'object') {
+        tileOffsets = { ...state.tileOffsets };
+    } else {
+        tileOffsets = {};
+    }
     tileBrush = state.tilePattern;
     wallBrush = state.wallPattern;
 
@@ -599,6 +612,7 @@ scene.add(fixturesGroup);
 // Raycaster สำหรับคลิกเลือกกระเบื้อง
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
+const floorIntersectPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
 // --- 3. Logic Functions ---
 
@@ -615,6 +629,7 @@ window.resetGrid = function() {
     flipData = [];
     floorTextureData = {};
     wallTextureData = {};
+    tileOffsets = {};
     removedWalls.clear();
     placementMode = null;
     while (fixturesGroup.children.length > 0) {
@@ -1354,75 +1369,75 @@ function build3D() {
             const fracX = (x === cw - 1 && gridWidth % 1 !== 0) ? gridWidth % 1 : 1;
             const fracY = (y === ch - 1 && gridHeight % 1 !== 0) ? gridHeight % 1 : 1;
 
+            // Cell center in world space (needed for world-space UV calculation)
+            const cx = x - offsetX - (1 - fracX) / 2;
+            const cz = y - offsetZ - (1 - fracY) / 2;
+
             // 1. สร้างพื้น (Tile)
             const cellPattern = floorTextureData[`${x},${y}`] || tilePattern;
             const tileMetaInfo = getTileMetaByKey(cellPattern) || tileMeta;
             const baseTexture = tileTextures[cellPattern] || tileTextures[tileMetaInfo?.key || ''];
-            
+
+            // Tile physical size in meters
+            const { widthM: tileW, lengthM: tileL } = getTileSizeInMeters(tileMetaInfo);
+            const safeW = (tileW > 0 && Number.isFinite(tileW)) ? tileW : 0.6;
+            const safeL = (tileL > 0 && Number.isFinite(tileL)) ? tileL : 0.6;
+
+            // Per-cell UV state
+            const tileOff = tileOffsets[cellPattern] || { x: 0, y: 0 };
+            const cellRotRad = rotationData[x][y] * Math.PI / 2;
+            const doFlip = !!flipData[x][y];
+            const cellUCx = cx / safeW + tileOff.x; // cell center in tile UV space (X)
+            const cellUCz = cz / safeL + tileOff.y; // cell center in tile UV space (Z)
+
+            // Custom Plane Geometry for fractional edge cells
+            const cGeometry = new THREE.PlaneGeometry(fracX, fracY);
+
+            // World-space UV — tiles align seamlessly across all cells, no 1 m block seams
+            {
+                const positions = cGeometry.attributes.position;
+                const uvs = cGeometry.attributes.uv;
+                for (let i = 0; i < positions.count; i++) {
+                    const lx = positions.getX(i);
+                    const ly = positions.getY(i);
+                    // After tile.rotation.x = -π/2 : local-Y maps to world -Z
+                    const wx = cx + lx;
+                    const wz = cz - ly;
+                    let u = wx / safeW + tileOff.x;
+                    let v = wz / safeL + tileOff.y;
+                    // Per-cell rotation/flip around the cell's UV centre
+                    if (cellRotRad !== 0 || doFlip) {
+                        let du = u - cellUCx;
+                        let dv = v - cellUCz;
+                        if (doFlip) du = -du;
+                        if (cellRotRad !== 0) {
+                            const cos = Math.cos(cellRotRad);
+                            const sin = Math.sin(cellRotRad);
+                            const du2 = du * cos - dv * sin;
+                            const dv2 = du * sin + dv * cos;
+                            du = du2; dv = dv2;
+                        }
+                        u = cellUCx + du;
+                        v = cellUCz + dv;
+                    }
+                    uvs.setXY(i, u, v);
+                }
+                uvs.needsUpdate = true;
+            }
+
             let tileMaterial;
             if (baseTexture) {
-                // Clone texture to avoid affecting others when adjusting repeat/offset for cut-off edge
                 const texClone = baseTexture.clone();
                 texClone.needsUpdate = true;
-                
-                // Calculate physical multiplier based on tile metadata (convert to meters)
-                let tilesPerMeterX = 1;
-                let tilesPerMeterY = 1;
-
-                if (tileMetaInfo && tileMetaInfo.width && tileMetaInfo.length) {
-                    const toMeters = (val, unit) => {
-                        const numericVal = parseFloat(val);
-                        if (!Number.isFinite(numericVal)) return 1;
-                        if (unit === 'cm') return numericVal / 100;
-                        if (unit === 'inch') return numericVal * 0.0254;
-                        if (unit === 'mm') return numericVal / 1000;
-                        if (unit === 'm') return numericVal;
-                        return numericVal; // fallback
-                    };
-                    const wM = toMeters(tileMetaInfo.width, tileMetaInfo.unit || 'cm');
-                    const lM = toMeters(tileMetaInfo.length, tileMetaInfo.unit || 'cm');
-                    
-                    if (Number.isFinite(wM) && wM > 0 && Number.isFinite(lM) && lM > 0) {
-                        tilesPerMeterX = 1 / wM;
-                        tilesPerMeterY = 1 / lM;
-                    }
-                }
-
-                // Make sure NaN doesn't crash the scaling vector
-                if (!Number.isFinite(tilesPerMeterX)) tilesPerMeterX = 1;
-                if (!Number.isFinite(tilesPerMeterY)) tilesPerMeterY = 1;
-
-                // First, reset the base repeat based on the physical dimension of the tile
-                // Then multiply by fracX/fracY if this is a cut-off edge cell.
-                texClone.repeat.set(tilesPerMeterX * fracX, tilesPerMeterY * fracY);
+                texClone.wrapS = texClone.wrapT = THREE.RepeatWrapping;
+                texClone.repeat.set(1, 1); // UVs are already in tile-units; RepeatWrapping handles tiling
                 tileMaterial = new THREE.MeshStandardMaterial({ map: texClone, side: THREE.DoubleSide });
             } else {
                 tileMaterial = new THREE.MeshStandardMaterial({ color: 0xe5e5e5, side: THREE.DoubleSide });
             }
 
-            // Custom Plane Geometry for fractional sizes
-            const cGeometry = new THREE.PlaneGeometry(fracX, fracY);
-            
-            // Fix UVs to cut off the texture instead of squishing it
-            const uvs = cGeometry.attributes.uv;
-            for (let i = 0; i < uvs.count; i++) {
-                uvs.setX(i, uvs.getX(i) * fracX);
-                uvs.setY(i, 1 - ((1 - uvs.getY(i)) * fracY)); // Top-Left anchor for Y
-            }
-
             const tile = new THREE.Mesh(cGeometry, tileMaterial);
-            tile.rotation.x = -Math.PI / 2; // นอนราบ
-            tile.rotation.z = - (rotationData[x][y] * Math.PI / 2); // หมุนตามค่าที่เก็บไว้
-
-            if (flipData[x][y]) {
-                tile.scale.x = -1; // พลิกซ้ายขวา
-                // Adjust rotation direction if scaled negatively to keep rotation intuitive
-                // Not strictly needed but keeps coordinate space predictable
-            }
-
-            // Position adjustment: Since plane is smaller, shift it so its top-left corner is at the original top-left corner
-            const cx = x - offsetX - (1 - fracX) / 2;
-            const cz = y - offsetZ - (1 - fracY) / 2;
+            tile.rotation.x = -Math.PI / 2; // นอนราบ — rotation/flip handled via UV above
             tile.position.set(cx, 0, cz);
 
             tile.userData = { x, y, isTile: true, fracX, fracY }; // เก็บข้อมูลพิกัดไว้ใน mesh เพื่อใช้ตอนคลิก
@@ -1527,6 +1542,26 @@ window.toggleWallDeleteMode = function(enabled) {
 
 window.toggleTileFlipMode = function(enabled) {
     tileFlipMode = enabled;
+}
+
+window.setTileOffsetMode = function(enabled) {
+    tileOffsetDragMode = enabled;
+    renderer.domElement.style.cursor = enabled ? 'grab' : 'default';
+    if (!enabled && isDraggingTileOffset) {
+        isDraggingTileOffset = false;
+        tileOffsetDragPattern = null;
+        tileOffsetDragLastPos = null;
+        controls.enabled = true;
+    }
+}
+
+window.resetTileOffset = function() {
+    const pattern = tileBrush || tilePattern;
+    if (tileOffsets[pattern]) {
+        delete tileOffsets[pattern];
+        build3D();
+        recordHistorySnapshot();
+    }
 }
 
 window.handleCustomTileUpload = function(e) {
@@ -1662,6 +1697,27 @@ function onPointerDown(event) {
     mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
     raycaster.setFromCamera(mouse, camera);
+
+    // โหมดลากขยับตำแหน่งกระเบื้อง
+    if (tileOffsetDragMode) {
+        const tileHits = raycaster.intersectObjects(roomGroup.children, true);
+        const tileHit = tileHits.find(hit => hit.object.userData.isTile);
+        if (tileHit) {
+            const data = tileHit.object.userData;
+            tileOffsetDragPattern = floorTextureData[`${data.x},${data.y}`] || tilePattern;
+            const worldPos = new THREE.Vector3();
+            if (raycaster.ray.intersectPlane(floorIntersectPlane, worldPos)) {
+                tileOffsetDragLastPos = worldPos.clone();
+                isDraggingTileOffset = true;
+                dragMutatedState = false;
+                ignoreNextClick = true;
+                controls.enabled = false;
+                renderer.domElement.style.cursor = 'grabbing';
+            }
+            return;
+        }
+    }
+
     const fixtureHits = raycaster.intersectObjects(fixturesGroup.children, true);
 
     if (fixtureHits.length > 0) {
@@ -1762,6 +1818,30 @@ function onCanvasClick(event) {
 }
 
 function onPointerMove(event) {
+    // ลากขยับตำแหน่งกระเบื้อง
+    if (isDraggingTileOffset && (event.buttons & 1) !== 0) {
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        const worldPos = new THREE.Vector3();
+        if (raycaster.ray.intersectPlane(floorIntersectPlane, worldPos) && tileOffsetDragLastPos && tileOffsetDragPattern) {
+            const meta = getTileMetaByKey(tileOffsetDragPattern);
+            const { widthM, lengthM } = getTileSizeInMeters(meta);
+            const safeW = (widthM > 0 && Number.isFinite(widthM)) ? widthM : 0.6;
+            const safeL = (lengthM > 0 && Number.isFinite(lengthM)) ? lengthM : 0.6;
+            const dx = worldPos.x - tileOffsetDragLastPos.x;
+            const dz = worldPos.z - tileOffsetDragLastPos.z;
+            const curr = tileOffsets[tileOffsetDragPattern] || { x: 0, y: 0 };
+            // Subtract delta so the tile pattern follows the cursor
+            tileOffsets[tileOffsetDragPattern] = { x: curr.x - dx / safeW, y: curr.y - dz / safeL };
+            tileOffsetDragLastPos = worldPos.clone();
+            dragMutatedState = true;
+            build3D();
+        }
+        return;
+    }
+
     if (!isDraggingFixture || !draggingFixture || (event.buttons & 1) === 0) return;
     const rect = renderer.domElement.getBoundingClientRect();
     mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -1777,6 +1857,16 @@ function onPointerMove(event) {
 }
 
 function onPointerUp() {
+    if (isDraggingTileOffset) {
+        if (dragMutatedState) recordHistorySnapshot();
+        isDraggingTileOffset = false;
+        tileOffsetDragPattern = null;
+        tileOffsetDragLastPos = null;
+        dragMutatedState = false;
+        controls.enabled = true;
+        renderer.domElement.style.cursor = tileOffsetDragMode ? 'grab' : 'default';
+        return;
+    }
     if (isDraggingFixture) {
         if (dragMutatedState) {
             recordHistorySnapshot();

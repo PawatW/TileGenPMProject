@@ -149,6 +149,20 @@ export default function PlannerPage() {
               <span className="switch-track"></span>
             </label>
           </div>
+          <div className="toggle-row" style={{ marginTop: "8px", border: "none", padding: 0 }}>
+            <span className="toggle-label" style={{ fontSize: "12px" }}>โหมดลากขยับตำแหน่งกระเบื้อง</span>
+            <label className="switch">
+              <input
+                type="checkbox"
+                onChange={(e) => (window as any).setTileOffsetMode?.((e.target as HTMLInputElement).checked)}
+              />
+              <span className="switch-track"></span>
+            </label>
+          </div>
+          <button className="btn-outline" style={{ marginTop: "6px", width: "100%", justifyContent: "center", fontSize: "12px" }} onClick={() => (window as any).resetTileOffset?.()}>
+            รีเซ็ตตำแหน่งกระเบื้องที่เลือก
+          </button>
+          <p className="hint" style={{ marginTop: "4px" }}>เปิดโหมดแล้วลากบนพื้นเพื่อขยับตำแหน่ง joint</p>
           <label className="field-label" style={{ marginTop: "12px" }}>ลายกระเบื้อง</label>
           <div id="tileSwatches" className="swatch-grid"></div>
           <button className="btn-outline" style={{ marginTop: "12px", width: "100%", justifyContent: "center" }} onClick={() => (window as any).fillAllTiles?.()}>
