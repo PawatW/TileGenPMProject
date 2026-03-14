@@ -8,6 +8,8 @@ export default function PlannerPage() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
   const [paintMode, setPaintMode] = useState<"cell" | "footprint">("footprint");
+  const [dragPaint, setDragPaint] = useState(false);
+  const [cellSelect, setCellSelect] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -112,7 +114,7 @@ export default function PlannerPage() {
             เทลายนี้ทุกกำแพง
           </button>
           <div className="toggle-row">
-            <span className="toggle-label">โหมดลบกำแพง</span>
+            <span className="toggle-label">โหมดแก้ไขกำแพง</span>
             <label className="switch">
               <input
                 type="checkbox"
@@ -122,7 +124,7 @@ export default function PlannerPage() {
               <span className="switch-track"></span>
             </label>
           </div>
-          <p className="hint">เปิดโหมดแล้วคลิกกำแพงเพื่อ ลบ/คืน</p>
+          <p className="hint">คลิกกำแพงที่มีอยู่ = ลบ | คลิกกำแพงโปร่งใส = เพิ่มคืน</p>
         </div>
 
         {/* Section: Tile */}
@@ -166,6 +168,48 @@ export default function PlannerPage() {
               ))}
             </div>
           </div>
+          {/* Drag-paint toggle */}
+          <div className="toggle-row" style={{ marginTop: "10px", border: "none", padding: 0 }}>
+            <span className="toggle-label" style={{ fontSize: "12px" }}>โหมดลากทาสี</span>
+            <label className="switch">
+              <input type="checkbox" checked={dragPaint} onChange={(e) => {
+                const v = (e.target as HTMLInputElement).checked;
+                setDragPaint(v);
+                (window as any).setTileDragPaintMode?.(v);
+                if (v && cellSelect) { setCellSelect(false); (window as any).setCellSelectMode?.(false); }
+              }} />
+              <span className="switch-track"></span>
+            </label>
+          </div>
+          <p className="hint" style={{ marginTop: "2px" }}>กดค้างแล้วลากเพื่อทาสีหลาย cell พร้อมกัน</p>
+
+          {/* Cell select mode */}
+          <div className="toggle-row" style={{ marginTop: "8px", border: "none", padding: 0 }}>
+            <span className="toggle-label" style={{ fontSize: "12px" }}>โหมดเลือก Cell</span>
+            <label className="switch">
+              <input type="checkbox" checked={cellSelect} onChange={(e) => {
+                const v = (e.target as HTMLInputElement).checked;
+                setCellSelect(v);
+                (window as any).setCellSelectMode?.(v);
+                if (v && dragPaint) { setDragPaint(false); (window as any).setTileDragPaintMode?.(false); }
+              }} />
+              <span className="switch-track"></span>
+            </label>
+          </div>
+          {cellSelect && (
+            <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>
+              <button className="btn-outline" style={{ flex: 1, justifyContent: "center", fontSize: "11px" }}
+                onClick={() => (window as any).paintSelectedCells?.()}>
+                ทาสี cell ที่เลือก
+              </button>
+              <button className="btn-outline" style={{ flex: 1, justifyContent: "center", fontSize: "11px" }}
+                onClick={() => (window as any).clearCellSelection?.()}>
+                ล้างการเลือก
+              </button>
+            </div>
+          )}
+          <p className="hint" style={{ marginTop: "2px" }}>คลิก cell เพื่อเลือก/ยกเลิก (สีส้ม) แล้วกด "ทาสี"</p>
+
           <div className="toggle-row" style={{ marginTop: "12px", border: "none", padding: 0 }}>
             <span className="toggle-label" style={{ fontSize: "12px" }}>โหมดกระจก (คลิกเพื่อพลิก)</span>
             <label className="switch">
