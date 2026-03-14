@@ -40,6 +40,11 @@ let placementMode = null;
 let wallDeleteMode = false;
 let tileFlipMode = false;
 let tilePaintMode = 'footprint'; // 'cell' | 'footprint'
+let tileDragPaintMode = false;   // drag-to-paint mode
+let isDragPainting = false;
+let dragPaintedCells = new Set(); // track painted cells in current drag
+let cellSelectMode = false;       // click to select/deselect cells
+let selectedCells = new Set();    // "gx,gy" keys of selected cells
 let ignoreNextClick = false;
 let isDraggingFixture = false;
 let draggingFixture = null;
@@ -610,11 +615,25 @@ scene.add(roomGroup);
 const fixturesGroup = new THREE.Group();
 scene.add(fixturesGroup);
 
-// Hover preview group — แสดง highlight ก่อนคลิก (footprint mode)
+// Hover preview group — แสดง highlight ก่อนคลิก
 const hoverGroup = new THREE.Group();
 scene.add(hoverGroup);
 const hoverMaterial = new THREE.MeshBasicMaterial({
     color: 0x3b82f6, transparent: true, opacity: 0.38,
+    depthWrite: false, side: THREE.DoubleSide,
+});
+
+// Cell selection highlight group (orange)
+const selectionGroup = new THREE.Group();
+scene.add(selectionGroup);
+const selectionMaterial = new THREE.MeshBasicMaterial({
+    color: 0xf59e0b, transparent: true, opacity: 0.50,
+    depthWrite: false, side: THREE.DoubleSide,
+});
+
+// Ghost wall material (semi-transparent white, for removed walls)
+const ghostWallMaterial = new THREE.MeshBasicMaterial({
+    color: 0xffffff, transparent: true, opacity: 0.20,
     depthWrite: false, side: THREE.DoubleSide,
 });
 
@@ -1507,6 +1526,37 @@ function build3D() {
         }
     }
 
+    // Ghost walls: แสดง outline ของกำแพงที่ถูกลบ เฉพาะเวลา wallDeleteMode เปิดอยู่
+    if (wallDeleteMode && removedWalls.size > 0) {
+        for (const wallKey of removedWalls) {
+            const parts = wallKey.split(',');
+            const gx = parseInt(parts[0]);
+            const gy = parseInt(parts[1]);
+            const side = parts[2];
+            if (!gridData[gx]?.[gy]) continue;
+            const cwG = Math.ceil(gridWidth);
+            const chG = Math.ceil(gridHeight);
+            const offX = gridWidth / 2 - 0.5;
+            const offZ = gridHeight / 2 - 0.5;
+            const fX = (gx === cwG - 1 && gridWidth % 1 !== 0) ? gridWidth % 1 : 1;
+            const fY = (gy === chG - 1 && gridHeight % 1 !== 0) ? gridHeight % 1 : 1;
+            const cxG = gx - offX - (1 - fX) / 2;
+            const czG = gy - offZ - (1 - fY) / 2;
+            let wx, wz, segLen;
+            if (side === 'top')    { wx = cxG; wz = czG - fY/2; segLen = fX; }
+            else if (side === 'bottom') { wx = cxG; wz = czG + fY/2; segLen = fX; }
+            else if (side === 'left')   { wx = cxG - fX/2; wz = czG; segLen = fY; }
+            else                        { wx = cxG + fX/2; wz = czG; segLen = fY; }
+            const h = parseFloat(wallHeight);
+            const ghostGeom = new THREE.BoxGeometry(segLen, h, wallThickness * 1.2);
+            const ghost = new THREE.Mesh(ghostGeom, ghostWallMaterial);
+            ghost.position.set(wx, h / 2, wz);
+            if (side === 'left' || side === 'right') ghost.rotation.y = Math.PI / 2;
+            ghost.userData = { isGhostWall: true, wallKey, x: gx, y: gy, side };
+            roomGroup.add(ghost);
+        }
+    }
+
     updatePriceSummary();
 }
 
@@ -1581,6 +1631,7 @@ window.toggleWallDeleteMode = function(enabled) {
         placementMode = null;
         renderFixtureSwatches();
     }
+    build3D(); // rebuild เพื่อแสดง/ซ่อน ghost walls
 }
 
 window.toggleTileFlipMode = function(enabled) {
@@ -1589,6 +1640,41 @@ window.toggleTileFlipMode = function(enabled) {
 
 window.setTilePaintMode = function(mode) {
     tilePaintMode = mode; // 'cell' | 'footprint'
+    clearHoverHighlight();
+}
+
+window.setTileDragPaintMode = function(enabled) {
+    tileDragPaintMode = enabled;
+    if (!enabled) { isDragPainting = false; dragPaintedCells.clear(); }
+}
+
+window.setCellSelectMode = function(enabled) {
+    cellSelectMode = enabled;
+    if (!enabled) {
+        selectedCells.clear();
+        updateSelectionHighlight();
+    }
+    clearHoverHighlight();
+}
+
+window.paintSelectedCells = function() {
+    if (selectedCells.size === 0) return;
+    const targetBrush = (typeof tileBrush !== 'undefined' && tileBrush) || tilePattern;
+    for (const key of selectedCells) {
+        const [gx, gy] = key.split(',').map(Number);
+        floorTextureData[`${gx},${gy}`] = targetBrush;
+        rotationData[gx][gy] = 0;
+        flipData[gx][gy] = 0;
+    }
+    selectedCells.clear();
+    updateSelectionHighlight();
+    build3D();
+    recordHistorySnapshot();
+}
+
+window.clearCellSelection = function() {
+    selectedCells.clear();
+    updateSelectionHighlight();
 }
 
 window.setTileOffsetMode = function(enabled) {
@@ -1798,16 +1884,48 @@ function computeFootprintCells(wx, wz, patternKey) {
     return cells;
 }
 
-function updateHoverHighlight(wx, wz, patternKey) {
+function addHighlightPlane(group, material, cx, cz, fracX, fracY, y = 0.015) {
+    const geo = new THREE.PlaneGeometry(fracX, fracY);
+    const mesh = new THREE.Mesh(geo, material);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(cx, y, cz);
+    group.add(mesh);
+}
+
+function getCellWorldInfo(gx, gy) {
+    const cw = Math.ceil(gridWidth);
+    const ch = Math.ceil(gridHeight);
+    const offsetX = gridWidth / 2 - 0.5;
+    const offsetZ = gridHeight / 2 - 0.5;
+    const fracX = (gx === cw - 1 && gridWidth % 1 !== 0) ? gridWidth % 1 : 1;
+    const fracY = (gy === ch - 1 && gridHeight % 1 !== 0) ? gridHeight % 1 : 1;
+    const cx = gx - offsetX - (1 - fracX) / 2;
+    const cz = gy - offsetZ - (1 - fracY) / 2;
+    return { cx, cz, fracX, fracY };
+}
+
+function updateHoverHighlight(wx, wz, patternKey, hitGx, hitGy) {
     clearHoverHighlight();
-    if (tilePaintMode !== 'footprint') return;
-    const cells = computeFootprintCells(wx, wz, patternKey);
+    if (cellSelectMode) return; // ไม่แสดง hover ขณะอยู่ใน select mode
+    let cells;
+    if (tilePaintMode === 'footprint') {
+        cells = computeFootprintCells(wx, wz, patternKey);
+    } else {
+        const info = getCellWorldInfo(hitGx, hitGy);
+        cells = [info];
+    }
     for (const { cx, cz, fracX, fracY } of cells) {
-        const geo = new THREE.PlaneGeometry(fracX, fracY);
-        const mesh = new THREE.Mesh(geo, hoverMaterial);
-        mesh.rotation.x = -Math.PI / 2;
-        mesh.position.set(cx, 0.015, cz);
-        hoverGroup.add(mesh);
+        addHighlightPlane(hoverGroup, hoverMaterial, cx, cz, fracX, fracY);
+    }
+}
+
+function updateSelectionHighlight() {
+    while (selectionGroup.children.length > 0) selectionGroup.remove(selectionGroup.children[0]);
+    for (const key of selectedCells) {
+        const [gx, gy] = key.split(',').map(Number);
+        if (gridData[gx]?.[gy] === 0) continue;
+        const { cx, cz, fracX, fracY } = getCellWorldInfo(gx, gy);
+        addHighlightPlane(selectionGroup, selectionMaterial, cx, cz, fracX, fracY, 0.018);
     }
 }
 // ──────────────────────────────────────────────────────────────────────────
@@ -1819,6 +1937,19 @@ function onPointerDown(event) {
     mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
     raycaster.setFromCamera(mouse, camera);
+
+    // โหมดลากทาสี (drag-paint): เริ่มลากเมื่อกดบนพื้น
+    if (tileDragPaintMode && !cellSelectMode) {
+        const tileHits = raycaster.intersectObjects(roomGroup.children, true);
+        const tileHit = tileHits.find(hit => hit.object.userData.isTile);
+        if (tileHit) {
+            isDragPainting = true;
+            dragPaintedCells.clear();
+            controls.enabled = false;
+            ignoreNextClick = true;
+            return;
+        }
+    }
 
     // โหมดลากขยับตำแหน่งกระเบื้อง
     if (tileOffsetDragMode) {
@@ -1899,9 +2030,19 @@ function onCanvasClick(event) {
 
         // ถ้าคลิกพื้นกระจก/กระเบื้อง
         if (data.isTile) {
-            const targetBrush = tileBrush || tilePattern;
             const clickedGx = data.x;
             const clickedGy = data.y;
+
+            // โหมดเลือก cell: toggle cell in/out of selection
+            if (cellSelectMode) {
+                const key = `${clickedGx},${clickedGy}`;
+                if (selectedCells.has(key)) selectedCells.delete(key);
+                else selectedCells.add(key);
+                updateSelectionHighlight();
+                return;
+            }
+
+            const targetBrush = tileBrush || tilePattern;
             const currentPattern = floorTextureData[`${clickedGx},${clickedGy}`] || tilePattern;
 
             if (tileFlipMode) {
@@ -1931,7 +2072,15 @@ function onCanvasClick(event) {
             build3D();
             recordHistorySnapshot();
         } 
-        // ถ้าคลิกกำแพง
+        // ถ้าคลิก ghost wall (กำแพงที่ถูกลบ) → คืนกลับมา
+        else if (data.isGhostWall) {
+            removedWalls.delete(data.wallKey);
+            wallLayoutMode = WALL_LAYOUT_CUSTOM;
+            syncWallLayoutControls();
+            build3D();
+            recordHistorySnapshot();
+        }
+        // ถ้าคลิกกำแพงจริง
         else if (data.isWall) {
             const wallKey = `${data.x},${data.y},${data.side}`;
             if (wallDeleteMode) {
@@ -1973,8 +2122,44 @@ function onPointerMove(event) {
         return;
     }
 
+    // Drag-paint: ทาสีเซลที่ลากผ่านขณะกดปุ่ม
+    if (isDragPainting && (event.buttons & 1) !== 0) {
+        const rect3 = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((event.clientX - rect3.left) / rect3.width) * 2 - 1;
+        mouse.y = -((event.clientY - rect3.top) / rect3.height) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        const dpHits = raycaster.intersectObjects(roomGroup.children, true);
+        const dpTile = dpHits.find(h => h.object.userData.isTile);
+        if (dpTile) {
+            const { x: gx, y: gy } = dpTile.object.userData;
+            const key = `${gx},${gy}`;
+            if (!dragPaintedCells.has(key)) {
+                dragPaintedCells.add(key);
+                const targetBrush = (typeof tileBrush !== 'undefined' && tileBrush) || tilePattern;
+                if (tilePaintMode === 'footprint') {
+                    const cells = computeFootprintCells(dpTile.point.x, dpTile.point.z, targetBrush);
+                    const targets = cells.length > 0 ? cells : [{ gx, gy }];
+                    for (const { gx: fx, gy: fy } of targets) {
+                        const fk = `${fx},${fy}`;
+                        if (!dragPaintedCells.has(fk)) {
+                            dragPaintedCells.add(fk);
+                            floorTextureData[fk] = targetBrush;
+                            rotationData[fx][fy] = 0; flipData[fx][fy] = 0;
+                        }
+                    }
+                } else {
+                    floorTextureData[key] = targetBrush;
+                    rotationData[gx][gy] = 0; flipData[gx][gy] = 0;
+                }
+                dragMutatedState = true;
+                build3D();
+            }
+        }
+        return;
+    }
+
     // Hover highlight preview (เฉพาะตอนไม่กดปุ่ม)
-    if ((event.buttons & 1) === 0 && tilePaintMode === 'footprint' && !tileOffsetDragMode) {
+    if ((event.buttons & 1) === 0 && !tileOffsetDragMode) {
         const rect2 = renderer.domElement.getBoundingClientRect();
         mouse.x = ((event.clientX - rect2.left) / rect2.width) * 2 - 1;
         mouse.y = -((event.clientY - rect2.top) / rect2.height) * 2 + 1;
@@ -1982,7 +2167,8 @@ function onPointerMove(event) {
         const hoverHits = raycaster.intersectObjects(roomGroup.children, true);
         const hoverTile = hoverHits.find(h => h.object.userData.isTile);
         if (hoverTile) {
-            updateHoverHighlight(hoverTile.point.x, hoverTile.point.z, tileBrush || tilePattern);
+            const { x: hGx, y: hGy } = hoverTile.object.userData;
+            updateHoverHighlight(hoverTile.point.x, hoverTile.point.z, tileBrush || tilePattern, hGx, hGy);
         } else {
             clearHoverHighlight();
         }
@@ -2003,6 +2189,14 @@ function onPointerMove(event) {
 }
 
 function onPointerUp() {
+    if (isDragPainting) {
+        isDragPainting = false;
+        if (dragMutatedState) recordHistorySnapshot();
+        dragPaintedCells.clear();
+        dragMutatedState = false;
+        controls.enabled = true;
+        return;
+    }
     if (isDraggingTileOffset) {
         if (dragMutatedState) recordHistorySnapshot();
         isDraggingTileOffset = false;
