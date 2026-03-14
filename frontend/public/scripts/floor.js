@@ -1865,27 +1865,22 @@ function onCanvasClick(event) {
                 cellsToUpdate.push({ gx: data.x, gy: data.y });
             }
 
+            const clickedGx = data.x;
+            const clickedGy = data.y;
+            const currentPattern = floorTextureData[`${clickedGx},${clickedGy}`] || tilePattern;
+
             if (tileFlipMode) {
-                // โหมดกระจก: สลับ flip ทุก cell ใน footprint
-                for (const { gx, gy } of cellsToUpdate) {
-                    flipData[gx][gy] = flipData[gx][gy] ? 0 : 1;
-                }
+                // โหมดกระจก: สลับ flip เฉพาะ cell ที่คลิก (ควบคุมได้ทีละ cell)
+                flipData[clickedGx][clickedGy] = flipData[clickedGx][clickedGy] ? 0 : 1;
+            } else if (currentPattern === targetBrush) {
+                // คลิก cell ที่มีลายเดิมอยู่แล้ว → หมุน เฉพาะ cell นั้น
+                rotationData[clickedGx][clickedGy] = (rotationData[clickedGx][clickedGy] + 1) % 4;
             } else {
-                // ถ้าทุก cell ใน footprint มีลายเดียวกับ brush อยู่แล้ว → หมุน
-                const allSame = cellsToUpdate.every(
-                    ({ gx, gy }) => (floorTextureData[`${gx},${gy}`] || tilePattern) === targetBrush
-                );
-                if (allSame) {
-                    for (const { gx, gy } of cellsToUpdate) {
-                        rotationData[gx][gy] = (rotationData[gx][gy] + 1) % 4;
-                    }
-                } else {
-                    // ทาสีทุก cell ใน footprint พร้อมกัน
-                    for (const { gx, gy } of cellsToUpdate) {
-                        floorTextureData[`${gx},${gy}`] = targetBrush;
-                        rotationData[gx][gy] = 0;
-                        flipData[gx][gy] = 0;
-                    }
+                // วางลายใหม่ → ทาสีทุก cell ใน footprint พร้อมกัน
+                for (const { gx, gy } of cellsToUpdate) {
+                    floorTextureData[`${gx},${gy}`] = targetBrush;
+                    rotationData[gx][gy] = 0;
+                    flipData[gx][gy] = 0;
                 }
             }
 
