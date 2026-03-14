@@ -39,6 +39,7 @@ let wallBrush = null;
 let placementMode = null;
 let wallDeleteMode = false;
 let tileFlipMode = false;
+let tilePaintMode = 'footprint'; // 'cell' | 'footprint'
 let ignoreNextClick = false;
 let isDraggingFixture = false;
 let draggingFixture = null;
@@ -1578,6 +1579,10 @@ window.toggleTileFlipMode = function(enabled) {
     tileFlipMode = enabled;
 }
 
+window.setTilePaintMode = function(mode) {
+    tilePaintMode = mode; // 'cell' | 'footprint'
+}
+
 window.setTileOffsetMode = function(enabled) {
     tileOffsetDragMode = enabled;
     renderer.domElement.style.cursor = enabled ? 'grab' : 'default';
@@ -1876,8 +1881,9 @@ function onCanvasClick(event) {
                 // คลิก cell ที่มีลายเดิมอยู่แล้ว → หมุน เฉพาะ cell นั้น
                 rotationData[clickedGx][clickedGy] = (rotationData[clickedGx][clickedGy] + 1) % 4;
             } else {
-                // วางลายใหม่ → ทาสีทุก cell ใน footprint พร้อมกัน
-                for (const { gx, gy } of cellsToUpdate) {
+                // วางลายใหม่
+                const targets = tilePaintMode === 'footprint' ? cellsToUpdate : [{ gx: clickedGx, gy: clickedGy }];
+                for (const { gx, gy } of targets) {
                     floorTextureData[`${gx},${gy}`] = targetBrush;
                     rotationData[gx][gy] = 0;
                     flipData[gx][gy] = 0;

@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 
 export default function PlannerPage() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
+  const [paintMode, setPaintMode] = useState<"cell" | "footprint">("footprint");
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -138,6 +139,32 @@ export default function PlannerPage() {
             <button className="btn-outline" style={{ flex: 1, justifyContent: "center", padding: "8px 4px" }} onClick={() => (window as any).flipAllTiles?.()}>
               พลิกทั้งหมด
             </button>
+          </div>
+          <div style={{ marginTop: "12px" }}>
+            <span className="toggle-label" style={{ fontSize: "12px", display: "block", marginBottom: "6px" }}>โหมดวางกระเบื้อง</span>
+            <div style={{ display: "flex", gap: "6px" }}>
+              {(["cell", "footprint"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  className="btn-outline"
+                  style={{
+                    flex: 1,
+                    justifyContent: "center",
+                    fontSize: "11px",
+                    padding: "4px 6px",
+                    background: paintMode === mode ? "var(--accent)" : "",
+                    color: paintMode === mode ? "#fff" : "",
+                    borderColor: paintMode === mode ? "var(--accent)" : "",
+                  }}
+                  onClick={() => {
+                    setPaintMode(mode);
+                    (window as any).setTilePaintMode?.(mode);
+                  }}
+                >
+                  {mode === "cell" ? "เฉพาะ Cell" : "ตามขนาดกระเบื้อง"}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="toggle-row" style={{ marginTop: "12px", border: "none", padding: 0 }}>
             <span className="toggle-label" style={{ fontSize: "12px" }}>โหมดกระจก (คลิกเพื่อพลิก)</span>
