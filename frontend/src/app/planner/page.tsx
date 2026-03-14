@@ -149,11 +149,47 @@ export default function PlannerPage() {
               <span className="switch-track"></span>
             </label>
           </div>
+          <div className="toggle-row" style={{ marginTop: "8px", border: "none", padding: 0 }}>
+            <span className="toggle-label" style={{ fontSize: "12px" }}>โหมดลากขยับตำแหน่งกระเบื้อง</span>
+            <label className="switch">
+              <input
+                type="checkbox"
+                onChange={(e) => (window as any).setTileOffsetMode?.((e.target as HTMLInputElement).checked)}
+              />
+              <span className="switch-track"></span>
+            </label>
+          </div>
+          <button className="btn-outline" style={{ marginTop: "6px", width: "100%", justifyContent: "center", fontSize: "12px" }} onClick={() => (window as any).resetTileOffset?.()}>
+            รีเซ็ตตำแหน่งกระเบื้องที่เลือก
+          </button>
+          <p className="hint" style={{ marginTop: "4px" }}>เปิดโหมดแล้วลากบนพื้นเพื่อขยับตำแหน่ง joint</p>
           <label className="field-label" style={{ marginTop: "12px" }}>ลายกระเบื้อง</label>
           <div id="tileSwatches" className="swatch-grid"></div>
           <button className="btn-outline" style={{ marginTop: "12px", width: "100%", justifyContent: "center" }} onClick={() => (window as any).fillAllTiles?.()}>
             เทลายนี้ทั้งห้อง (Fill Room)
           </button>
+          
+          <div style={{ marginTop: "16px", padding: "12px", backgroundColor: "var(--bg-secondary)", borderRadius: "8px" }}>
+            <span className="field-label" style={{ marginBottom: "8px", display: "block" }}>เพิ่มลายกระเบื้องของคุณเอง</span>
+            <div 
+              style={{ display: "flex", gap: "8px", marginBottom: "8px", position: "relative", zIndex: 100 }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <input type="number" id="customTileW" defaultValue={60} min={1} style={{ flex: 1, minWidth: 0, padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)" }} placeholder="กว้าง" />
+              <input type="number" id="customTileL" defaultValue={60} min={1} style={{ flex: 1, minWidth: 0, padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)" }} placeholder="ยาว" />
+              <select id="customTileUnit" style={{ padding: "4px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", width: "auto", flexShrink: 0 }}>
+                <option value="cm">cm</option>
+                <option value="inch">inch</option>
+                <option value="m">m</option>
+              </select>
+            </div>
+            <input type="file" id="customTileFile" accept="image/*" style={{ display: "none" }} onChange={(e) => (window as any).handleCustomTileUpload?.(e)} />
+            <button className="draft-btn primary" style={{ width: "100%", justifyContent: "center" }} onClick={() => document.getElementById('customTileFile')?.click()}>
+              อัปโหลดรูปลายกระเบื้อง
+            </button>
+            <span style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginTop: "8px", textAlign: "center" }}>*รูปจะถูกย่อไม่เกิน 512px อัตโนมัติ</span>
+          </div>
         </div>
 
         {/* Section: Fixtures */}
