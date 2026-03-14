@@ -979,9 +979,12 @@ function getTileSizeInMeters(tileMeta) {
 function calculatePricingSummary() {
     const cw = Math.ceil(gridWidth);
     const ch = Math.ceil(gridHeight);
+    const offsetX = (gridWidth * 1) / 2 - 0.5;
+    const offsetZ = (gridHeight * 1) / 2 - 0.5;
 
-    // รวมพื้นที่แยกตามลายกระเบื้องแต่ละช่อง
-    const areaByPattern = {};
+    // นับ unique tile grid positions ต่อลาย (ตรงกับโมเดล 3D จริง)
+    // เหมือนกับ world-space UV ใน build3D — เศษแม้นิดเดียวก็นับ 1 แผ่น
+    const patternData = {}; // { [patternKey]: { area, tileSet: Set<string> } }
     let totalAreaSqm = 0;
 
     for (let x = 0; x < cw; x++) {
@@ -991,8 +994,40 @@ function calculatePricingSummary() {
             const fracY = (y === ch - 1 && gridHeight % 1 !== 0) ? gridHeight % 1 : 1;
             const cellArea = fracX * fracY;
             const cellPattern = floorTextureData[`${x},${y}`] || tilePattern;
-            areaByPattern[cellPattern] = (areaByPattern[cellPattern] || 0) + cellArea;
             totalAreaSqm += cellArea;
+
+            if (!patternData[cellPattern]) patternData[cellPattern] = { area: 0, tileSet: new Set() };
+            patternData[cellPattern].area += cellArea;
+
+            const meta = getTileMetaByKey(cellPattern);
+            const { widthM: tW, lengthM: tL } = getTileSizeInMeters(meta);
+            const safeW = (tW > 0 && Number.isFinite(tW)) ? tW : 0.6;
+            const safeL = (tL > 0 && Number.isFinite(tL)) ? tL : 0.6;
+            const tileOff = tileOffsets[cellPattern] || { x: 0, y: 0 };
+
+            // World-space position ของ cell (เหมือน build3D)
+            const cx = x - offsetX - (1 - fracX) / 2;
+            const cz = y - offsetZ - (1 - fracY) / 2;
+
+            // UV range ของ cell นี้ (ใช้สูตรเดียวกับ build3D)
+            // X: wx = cx ± fracX/2,  u = wx/safeW + tileOff.x
+            // Z: wz = cz ∓ ly (local y → world -z after rotation), wz range = cz ± fracY/2
+            const uMin = (cx - fracX / 2) / safeW + tileOff.x;
+            const uMax = (cx + fracX / 2) / safeW + tileOff.x;
+            const vMin = (cz - fracY / 2) / safeL + tileOff.y;
+            const vMax = (cz + fracY / 2) / safeL + tileOff.y;
+
+            // Tile grid indices ที่ overlap กับ cell นี้
+            const tiX0 = Math.floor(uMin);
+            const tiX1 = Math.floor(uMax - 1e-9);
+            const tiZ0 = Math.floor(vMin);
+            const tiZ1 = Math.floor(vMax - 1e-9);
+
+            for (let ti = tiX0; ti <= tiX1; ti++) {
+                for (let tj = tiZ0; tj <= tiZ1; tj++) {
+                    patternData[cellPattern].tileSet.add(`${ti},${tj}`);
+                }
+            }
         }
     }
 
@@ -1002,11 +1037,10 @@ function calculatePricingSummary() {
     let totalBoxCount = 0;
     let totalPrice = 0;
 
-    const groups = Object.entries(areaByPattern).map(([patternKey, area]) => {
+    const groups = Object.entries(patternData).map(([patternKey, data]) => {
         const meta = getTileMetaByKey(patternKey);
         const { widthM, lengthM } = getTileSizeInMeters(meta);
-        const areaPerTile = Math.max(widthM * lengthM, 0.0001);
-        const rawTiles = area / areaPerTile;
+        const rawTiles = data.tileSet.size; // นับ unique tile positions
         const tilesWithWaste = Math.ceil(rawTiles * 1.05);
         const tilesPerBox = Math.max(1, Math.ceil(Number(meta?.tilesPerBox) || 1));
         const pricePerBox = Math.max(0, Number(meta?.pricePerBox) || 0);
@@ -1018,7 +1052,7 @@ function calculatePricingSummary() {
         totalBoxCount += boxes;
         totalPrice += price;
 
-        return { patternKey, area, rawTiles, tilesWithWaste, tilesPerBox, pricePerBox, boxes, price };
+        return { patternKey, area: data.area, rawTiles, tilesWithWaste, tilesPerBox, pricePerBox, boxes, price };
     });
 
     // ข้อมูล primary tile (สำหรับ backward compat กับ quotation)
