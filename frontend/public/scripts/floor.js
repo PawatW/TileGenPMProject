@@ -1018,12 +1018,12 @@ function calculatePricingSummary() {
     const offsetX = (gridWidth * 1) / 2 - 0.5;
     const offsetZ = (gridHeight * 1) / 2 - 0.5;
 
-    // นับ unique tile grid positions ต่อ pattern โดยใช้ UV จริง (รวม tileOffset)
-    // — เฉพาะ cell ที่มีกระเบื้อง (รองรับห้องรูป L)
-    // — ตำแหน่ง grid เป็น absolute: เมื่อ offset ทำให้ขอบกระเบื้องตัดผ่านห้อง
-    //   จำนวน unique position จะเพิ่ม → สะท้อนแผ่นที่ต้องใช้จริง
-    // — เมื่อผู้ใช้ปรับ offset ให้กระเบื้องพอดีห้อง (ขอบตรงกับขอบห้อง)
-    //   ทุก cell จะ map ไป grid position เดียวกัน → นับได้ถูกต้อง
+    // Hybrid approach:
+    // — แผ่นใหญ่ (>1 m): normalized tileSet → นับ "instance" ของแผ่นจริงที่วางบนพื้น
+    //   ไม่ขึ้นกับ world-UV origin → ห้อง 3×3 + แผ่น 3×3 = 1 เสมอ
+    //   เมื่อแผ่นเล็กแทรกเข้าบาง cell แต่ยังมี cell ของแผ่นใหญ่เหลืออยู่ → ยังนับ 1
+    //   เมื่อแผ่นเล็ก cover ทุก cell ของ instance นั้น → ไม่นับแผ่นใหญ่ instance นั้น
+    // — แผ่นเล็ก (≤1 m): absolute tileSet → ตอบสนอง tileOffset ที่ผู้ใช้ลาก
     const patternData = {};
     let totalAreaSqm = 0;
 
@@ -1039,13 +1039,18 @@ function calculatePricingSummary() {
             if (!patternData[cellPattern]) {
                 const meta = getTileMetaByKey(cellPattern);
                 const { widthM: tW, lengthM: tL } = getTileSizeInMeters(meta);
+                const safeW = (tW > 0 && Number.isFinite(tW)) ? tW : 0.6;
+                const safeL = (tL > 0 && Number.isFinite(tL)) ? tL : 0.6;
                 patternData[cellPattern] = {
                     meta,
-                    safeW: (tW > 0 && Number.isFinite(tW)) ? tW : 0.6,
-                    safeL: (tL > 0 && Number.isFinite(tL)) ? tL : 0.6,
+                    safeW, safeL,
+                    isLarge: safeW > 1.0 + 1e-9 || safeL > 1.0 + 1e-9,
                     tileOff: tileOffsets[cellPattern] || { x: 0, y: 0 },
                     area: 0,
-                    tileSet: new Set()
+                    tileSet: new Set(),
+                    // ใช้สำหรับ normalize แผ่นใหญ่เท่านั้น
+                    uMinRoom: Infinity, vMinRoom: Infinity,
+                    cells: []
                 };
             }
             const pd = patternData[cellPattern];
@@ -1061,11 +1066,39 @@ function calculatePricingSummary() {
             const vMin = (cz - fracY / 2) / pd.safeL + pd.tileOff.y;
             const vMax = (cz + fracY / 2) / pd.safeL + pd.tileOff.y;
 
-            // Tile grid indices ที่ cell นี้ครอบ (absolute — ตอบสนองต่อ offset)
-            const tiX0 = Math.floor(uMin);
-            const tiX1 = Math.floor(uMax - 1e-9);
-            const tiZ0 = Math.floor(vMin);
-            const tiZ1 = Math.floor(vMax - 1e-9);
+            if (pd.isLarge) {
+                // แผ่นใหญ่: เก็บ UV ของแต่ละ cell ไว้ normalize ใน pass 2
+                if (uMin < pd.uMinRoom) pd.uMinRoom = uMin;
+                if (vMin < pd.vMinRoom) pd.vMinRoom = vMin;
+                pd.cells.push({ uMin, uMax, vMin, vMax });
+            } else {
+                // แผ่นเล็ก: absolute grid positions (ตอบสนอง offset)
+                const tiX0 = Math.floor(uMin);
+                const tiX1 = Math.floor(uMax - 1e-9);
+                const tiZ0 = Math.floor(vMin);
+                const tiZ1 = Math.floor(vMax - 1e-9);
+                for (let ti = tiX0; ti <= tiX1; ti++) {
+                    for (let tj = tiZ0; tj <= tiZ1; tj++) {
+                        pd.tileSet.add(`${ti},${tj}`);
+                    }
+                }
+            }
+        }
+    }
+
+    // Pass 2: normalized tileSet สำหรับแผ่นใหญ่
+    // UV min ของ cell แรก (uMinRoom) ใช้เป็น origin → tile แรกของห้องเสมออยู่ที่ index 0
+    // ทำให้ world-UV origin ไม่ส่งผลต่อจำนวนแผ่น
+    // แผ่นเล็กที่แทรกเข้าใน cell ของแผ่นใหญ่: เนื่องจาก cell นั้นไม่ถูกเพิ่มใน pd.cells
+    // ถ้า cell อื่นของแผ่นใหญ่ยังครอบ grid instance เดิมอยู่ → ยังนับแผ่นใหญ่
+    // ถ้าแผ่นเล็ก cover ทุก cell ของ instance → pd.cells ว่าง/ไม่ครอบ instance → ไม่นับ
+    for (const pd of Object.values(patternData)) {
+        if (!pd.isLarge) continue;
+        for (const { uMin, uMax, vMin, vMax } of pd.cells) {
+            const tiX0 = Math.floor(uMin - pd.uMinRoom);
+            const tiX1 = Math.floor(uMax - pd.uMinRoom - 1e-9);
+            const tiZ0 = Math.floor(vMin - pd.vMinRoom);
+            const tiZ1 = Math.floor(vMax - pd.vMinRoom - 1e-9);
             for (let ti = tiX0; ti <= tiX1; ti++) {
                 for (let tj = tiZ0; tj <= tiZ1; tj++) {
                     pd.tileSet.add(`${ti},${tj}`);
