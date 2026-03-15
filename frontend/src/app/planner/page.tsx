@@ -1,12 +1,25 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+
+type SelectedEl =
+  | { type: "tile"; x: number; y: number; patternKey: string; rotation: number; flip: boolean }
+  | { type: "wall"; wallKey: string; x: number; y: number; side: string; patternKey: string; removed: boolean }
+  | { type: "fixture"; index: number; fixtureType: string; label: string }
+  | null;
+
+const SIDE_LABELS: Record<string, string> = { top: "บน", bottom: "ล่าง", left: "ซ้าย", right: "ขวา" };
+const ROT_LABELS = ["0°", "90°", "180°", "270°"];
 
 export default function PlannerPage() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
+  const [paintMode, setPaintMode] = useState<"cell" | "footprint">("footprint");
+  const [dragPaint, setDragPaint] = useState(false);
+  const [cellSelect, setCellSelect] = useState(false);
+  const [selectedEl, setSelectedEl] = useState<SelectedEl>(null);
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -26,6 +39,20 @@ export default function PlannerPage() {
       }
     };
   }, [user]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as SelectedEl;
+      setSelectedEl(detail);
+    };
+    document.addEventListener("pmElementSelected", handler);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setSelectedEl(null); };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pmElementSelected", handler);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, []);
 
   if (isLoading || !user) return null;
 
@@ -49,6 +76,13 @@ export default function PlannerPage() {
             <div className="brand-sub">Floor Planner</div>
           </div>
         </div>
+
+        {/* Catalog link */}
+        <a href="/planner/catalog" target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: "8px", margin: "0 0 4px 0", padding: "8px 12px", borderRadius: "8px", border: "1px solid var(--border)", background: "var(--surface-1)", textDecoration: "none", color: "var(--text)", fontSize: "12px" }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          <span style={{ flex: 1 }}>จัดการ Catalog</span>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" style={{ opacity: 0.5 }}><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        </a>
 
         {/* Section: Room Size */}
         <div className="panel-section">
@@ -111,7 +145,7 @@ export default function PlannerPage() {
             เทลายนี้ทุกกำแพง
           </button>
           <div className="toggle-row">
-            <span className="toggle-label">โหมดลบกำแพง</span>
+            <span className="toggle-label">โหมดแก้ไขกำแพง</span>
             <label className="switch">
               <input
                 type="checkbox"
@@ -121,7 +155,16 @@ export default function PlannerPage() {
               <span className="switch-track"></span>
             </label>
           </div>
-          <p className="hint">เปิดโหมดแล้วคลิกกำแพงเพื่อ ลบ/คืน</p>
+          <p className="hint">คลิกกำแพงที่มีอยู่ = ลบ | คลิกกำแพงโปร่งใส = เพิ่มคืน</p>
+          <div style={{ marginTop: "12px", padding: "12px", backgroundColor: "var(--bg-secondary)", borderRadius: "8px" }}
+            onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+            <span className="field-label" style={{ marginBottom: "8px", display: "block" }}>เพิ่มลายกำแพงใหม่</span>
+            <input type="text" id="customWallName" placeholder="ชื่อลาย เช่น หินอ่อนขาว" style={{ width: "100%", marginBottom: "6px", padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box" }} />
+            <input type="file" id="customWallFile" accept="image/*" style={{ display: "none" }} onChange={(e) => (window as any).handleCustomWallUpload?.(e)} />
+            <button className="draft-btn primary" style={{ width: "100%", justifyContent: "center" }} onClick={() => document.getElementById('customWallFile')?.click()}>
+              อัปโหลดรูปลาย
+            </button>
+          </div>
         </div>
 
         {/* Section: Tile */}
@@ -139,6 +182,74 @@ export default function PlannerPage() {
               พลิกทั้งหมด
             </button>
           </div>
+          <div style={{ marginTop: "12px" }}>
+            <span className="toggle-label" style={{ fontSize: "12px", display: "block", marginBottom: "6px" }}>โหมดวางกระเบื้อง</span>
+            <div style={{ display: "flex", gap: "6px" }}>
+              {(["cell", "footprint"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  className="btn-outline"
+                  style={{
+                    flex: 1,
+                    justifyContent: "center",
+                    fontSize: "11px",
+                    padding: "4px 6px",
+                    background: paintMode === mode ? "var(--accent)" : "",
+                    color: paintMode === mode ? "#fff" : "",
+                    borderColor: paintMode === mode ? "var(--accent)" : "",
+                  }}
+                  onClick={() => {
+                    setPaintMode(mode);
+                    (window as any).setTilePaintMode?.(mode);
+                  }}
+                >
+                  {mode === "cell" ? "เฉพาะ Cell" : "ตามขนาดกระเบื้อง"}
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* Drag-paint toggle */}
+          <div className="toggle-row" style={{ marginTop: "10px", border: "none", padding: 0 }}>
+            <span className="toggle-label" style={{ fontSize: "12px" }}>โหมดลากทาสี</span>
+            <label className="switch">
+              <input type="checkbox" checked={dragPaint} onChange={(e) => {
+                const v = (e.target as HTMLInputElement).checked;
+                setDragPaint(v);
+                (window as any).setTileDragPaintMode?.(v);
+                if (v && cellSelect) { setCellSelect(false); (window as any).setCellSelectMode?.(false); }
+              }} />
+              <span className="switch-track"></span>
+            </label>
+          </div>
+          <p className="hint" style={{ marginTop: "2px" }}>กดค้างแล้วลากเพื่อทาสีหลาย cell พร้อมกัน</p>
+
+          {/* Cell select mode */}
+          <div className="toggle-row" style={{ marginTop: "8px", border: "none", padding: 0 }}>
+            <span className="toggle-label" style={{ fontSize: "12px" }}>โหมดเลือก Cell</span>
+            <label className="switch">
+              <input type="checkbox" checked={cellSelect} onChange={(e) => {
+                const v = (e.target as HTMLInputElement).checked;
+                setCellSelect(v);
+                (window as any).setCellSelectMode?.(v);
+                if (v && dragPaint) { setDragPaint(false); (window as any).setTileDragPaintMode?.(false); }
+              }} />
+              <span className="switch-track"></span>
+            </label>
+          </div>
+          {cellSelect && (
+            <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>
+              <button className="btn-outline" style={{ flex: 1, justifyContent: "center", fontSize: "11px" }}
+                onClick={() => (window as any).paintSelectedCells?.()}>
+                ทาสี cell ที่เลือก
+              </button>
+              <button className="btn-outline" style={{ flex: 1, justifyContent: "center", fontSize: "11px" }}
+                onClick={() => (window as any).clearCellSelection?.()}>
+                ล้างการเลือก
+              </button>
+            </div>
+          )}
+          <p className="hint" style={{ marginTop: "2px" }}>คลิก cell เพื่อเลือก/ยกเลิก (สีส้ม) แล้วกด "ทาสี"</p>
+
           <div className="toggle-row" style={{ marginTop: "12px", border: "none", padding: 0 }}>
             <span className="toggle-label" style={{ fontSize: "12px" }}>โหมดกระจก (คลิกเพื่อพลิก)</span>
             <label className="switch">
@@ -159,9 +270,14 @@ export default function PlannerPage() {
               <span className="switch-track"></span>
             </label>
           </div>
-          <button className="btn-outline" style={{ marginTop: "6px", width: "100%", justifyContent: "center", fontSize: "12px" }} onClick={() => (window as any).resetTileOffset?.()}>
-            รีเซ็ตตำแหน่งกระเบื้องที่เลือก
-          </button>
+          <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>
+            <button className="btn-outline" style={{ flex: 1, justifyContent: "center", fontSize: "11px" }} onClick={() => (window as any).snapTileToRoom?.()}>
+              ปรับให้พอดีห้อง
+            </button>
+            <button className="btn-outline" style={{ flex: 1, justifyContent: "center", fontSize: "11px" }} onClick={() => (window as any).resetTileOffset?.()}>
+              รีเซ็ต offset
+            </button>
+          </div>
           <p className="hint" style={{ marginTop: "4px" }}>เปิดโหมดแล้วลากบนพื้นเพื่อขยับตำแหน่ง joint</p>
           <label className="field-label" style={{ marginTop: "12px" }}>ลายกระเบื้อง</label>
           <div id="tileSwatches" className="swatch-grid"></div>
@@ -169,26 +285,34 @@ export default function PlannerPage() {
             เทลายนี้ทั้งห้อง (Fill Room)
           </button>
           
-          <div style={{ marginTop: "16px", padding: "12px", backgroundColor: "var(--bg-secondary)", borderRadius: "8px" }}>
-            <span className="field-label" style={{ marginBottom: "8px", display: "block" }}>เพิ่มลายกระเบื้องของคุณเอง</span>
-            <div 
-              style={{ display: "flex", gap: "8px", marginBottom: "8px", position: "relative", zIndex: 100 }}
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => e.stopPropagation()}
-            >
+          <div style={{ marginTop: "16px", padding: "12px", backgroundColor: "var(--bg-secondary)", borderRadius: "8px" }}
+            onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+            <span className="field-label" style={{ marginBottom: "8px", display: "block" }}>เพิ่มลายกระเบื้องใหม่</span>
+            <input type="text" id="customTileName" placeholder="ชื่อลาย เช่น โมเสคสีฟ้า" style={{ width: "100%", marginBottom: "6px", padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box" }} />
+            <div style={{ display: "flex", gap: "6px", marginBottom: "6px" }}>
               <input type="number" id="customTileW" defaultValue={60} min={1} style={{ flex: 1, minWidth: 0, padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)" }} placeholder="กว้าง" />
               <input type="number" id="customTileL" defaultValue={60} min={1} style={{ flex: 1, minWidth: 0, padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)" }} placeholder="ยาว" />
-              <select id="customTileUnit" style={{ padding: "4px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", width: "auto", flexShrink: 0 }}>
+              <select id="customTileUnit" style={{ padding: "4px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", flexShrink: 0 }}>
                 <option value="cm">cm</option>
                 <option value="inch">inch</option>
                 <option value="m">m</option>
               </select>
             </div>
+            <div style={{ display: "flex", gap: "6px", marginBottom: "8px" }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>ราคา/กล่อง (฿)</label>
+                <input type="number" id="customTilePrice" defaultValue={0} min={0} style={{ width: "100%", padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box" }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>แผ่น/กล่อง</label>
+                <input type="number" id="customTilePerBox" defaultValue={4} min={1} style={{ width: "100%", padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box" }} />
+              </div>
+            </div>
             <input type="file" id="customTileFile" accept="image/*" style={{ display: "none" }} onChange={(e) => (window as any).handleCustomTileUpload?.(e)} />
             <button className="draft-btn primary" style={{ width: "100%", justifyContent: "center" }} onClick={() => document.getElementById('customTileFile')?.click()}>
-              อัปโหลดรูปลายกระเบื้อง
+              อัปโหลดรูปลาย
             </button>
-            <span style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginTop: "8px", textAlign: "center" }}>*รูปจะถูกย่อไม่เกิน 512px อัตโนมัติ</span>
+            <span style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginTop: "6px", textAlign: "center" }}>รูปจะถูกย่อไม่เกิน 512px อัตโนมัติ</span>
           </div>
         </div>
 
@@ -200,6 +324,30 @@ export default function PlannerPage() {
           </div>
           <p className="hint">เลือกชนิดแล้วคลิก/ลากบนกำแพง | คลิกขวาที่ชิ้นงานเพื่อลบ</p>
           <div id="fixtureSwatches" className="swatch-grid"></div>
+          <div style={{ marginTop: "12px", padding: "12px", backgroundColor: "var(--bg-secondary)", borderRadius: "8px" }}
+            onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+            <span className="field-label" style={{ marginBottom: "8px", display: "block" }}>เพิ่มชนิดใหม่</span>
+            <input type="text" id="customFixtureName" placeholder="ชื่อ เช่น ประตูกระจกบาน" style={{ width: "100%", marginBottom: "6px", padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box" }} />
+            <div style={{ display: "flex", gap: "6px", marginBottom: "6px" }}>
+              <select id="customFixtureStyle" style={{ flex: 1, padding: "4px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)" }}>
+                <option value="door">ประตู</option>
+                <option value="window">หน้าต่าง</option>
+              </select>
+            </div>
+            <div style={{ display: "flex", gap: "6px", marginBottom: "8px" }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>กว้าง (ม.)</label>
+                <input type="number" id="customFixtureW" defaultValue={0.9} min={0.3} max={5} step={0.05} style={{ width: "100%", padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box" }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>สูง (ม.)</label>
+                <input type="number" id="customFixtureH" defaultValue={2.0} min={0.3} max={5} step={0.05} style={{ width: "100%", padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box" }} />
+              </div>
+            </div>
+            <button className="draft-btn primary" style={{ width: "100%", justifyContent: "center" }} onClick={() => (window as any).addCustomFixtureType?.()}>
+              เพิ่มชนิดนี้
+            </button>
+          </div>
         </div>
 
       </div>
@@ -238,6 +386,99 @@ export default function PlannerPage() {
           </svg>
           คลิกซ้าย: หมุนกระเบื้อง &nbsp;|&nbsp; ลากบนกำแพง: วางหน้าต่าง/ประตู &nbsp;|&nbsp; คลิกขวา: หมุนกล้อง
         </div>
+
+        {/* Element Inspector Panel */}
+        {selectedEl && (
+          <div style={{
+            position: "absolute", bottom: "16px", left: "16px",
+            background: "var(--surface-1, #1e1e2e)", border: "1px solid var(--border, #333)",
+            borderRadius: "10px", padding: "14px 16px", minWidth: "220px", maxWidth: "280px",
+            boxShadow: "0 4px 20px rgba(0,0,0,0.4)", zIndex: 50, color: "var(--text, #e0e0e0)", fontSize: "13px"
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+              <span style={{ fontWeight: 600, fontSize: "13px" }}>
+                {selectedEl.type === "tile" && "กระเบื้อง"}
+                {selectedEl.type === "wall" && "กำแพง"}
+                {selectedEl.type === "fixture" && "หน้าต่าง/ประตู"}
+              </span>
+              <button onClick={() => setSelectedEl(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted, #888)", fontSize: "16px", lineHeight: 1, padding: "0 2px" }}>✕</button>
+            </div>
+
+            {selectedEl.type === "tile" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--text-muted, #888)" }}>ตำแหน่ง</span>
+                  <span>({selectedEl.x}, {selectedEl.y})</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--text-muted, #888)" }}>ลาย</span>
+                  <span style={{ textAlign: "right", maxWidth: "140px", wordBreak: "break-word" }}>{selectedEl.patternKey}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--text-muted, #888)" }}>หมุน</span>
+                  <span>{ROT_LABELS[selectedEl.rotation] || "0°"}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--text-muted, #888)" }}>กระจก</span>
+                  <span>{selectedEl.flip ? "เปิด" : "ปิด"}</span>
+                </div>
+                <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>
+                  <button className="btn-outline" style={{ flex: 1, justifyContent: "center", fontSize: "11px", padding: "4px" }}
+                    onClick={() => { (window as any).setTileCellRotation?.(selectedEl.x, selectedEl.y, (selectedEl.rotation + 1) % 4); setSelectedEl({ ...selectedEl, rotation: (selectedEl.rotation + 1) % 4 }); }}>
+                    หมุน +90°
+                  </button>
+                  <button className="btn-outline" style={{ flex: 1, justifyContent: "center", fontSize: "11px", padding: "4px" }}
+                    onClick={() => { (window as any).setTileCellFlip?.(selectedEl.x, selectedEl.y, !selectedEl.flip); setSelectedEl({ ...selectedEl, flip: !selectedEl.flip }); }}>
+                    {selectedEl.flip ? "ยกเลิกกระจก" : "กระจก"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {selectedEl.type === "wall" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--text-muted, #888)" }}>ตำแหน่ง</span>
+                  <span>({selectedEl.x}, {selectedEl.y}) ด้าน{SIDE_LABELS[selectedEl.side] || selectedEl.side}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--text-muted, #888)" }}>ลาย</span>
+                  <span style={{ textAlign: "right", maxWidth: "140px", wordBreak: "break-word" }}>{selectedEl.patternKey}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--text-muted, #888)" }}>สถานะ</span>
+                  <span style={{ color: selectedEl.removed ? "#f87171" : "#4ade80" }}>{selectedEl.removed ? "ลบแล้ว" : "ปกติ"}</span>
+                </div>
+                <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>
+                  {!selectedEl.removed ? (
+                    <button className="btn-outline" style={{ flex: 1, justifyContent: "center", fontSize: "11px", padding: "4px", borderColor: "#f87171", color: "#f87171" }}
+                      onClick={() => { (window as any).removeWallByKey?.(selectedEl.wallKey); setSelectedEl({ ...selectedEl, removed: true }); }}>
+                      ลบกำแพง
+                    </button>
+                  ) : (
+                    <button className="btn-outline" style={{ flex: 1, justifyContent: "center", fontSize: "11px", padding: "4px", borderColor: "#4ade80", color: "#4ade80" }}
+                      onClick={() => { (window as any).restoreWallByKey?.(selectedEl.wallKey); setSelectedEl({ ...selectedEl, removed: false }); }}>
+                      คืนกำแพง
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {selectedEl.type === "fixture" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--text-muted, #888)" }}>ชนิด</span>
+                  <span>{selectedEl.label}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--text-muted, #888)" }}>หมายเหตุ</span>
+                  <span style={{ color: "#f87171" }}>ถูกลบแล้ว (คลิกขวา)</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
       </div>
 

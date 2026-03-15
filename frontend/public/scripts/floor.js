@@ -39,6 +39,12 @@ let wallBrush = null;
 let placementMode = null;
 let wallDeleteMode = false;
 let tileFlipMode = false;
+let tilePaintMode = 'footprint'; // 'cell' | 'footprint'
+let tileDragPaintMode = false;   // drag-to-paint mode
+let isDragPainting = false;
+let dragPaintedCells = new Set(); // track painted cells in current drag
+let cellSelectMode = false;       // click to select/deselect cells
+let selectedCells = new Set();    // "gx,gy" keys of selected cells
 let ignoreNextClick = false;
 let isDraggingFixture = false;
 let draggingFixture = null;
@@ -51,6 +57,7 @@ let dragMutatedState = false;
 
 // Tile offset drag state
 let tileOffsets = {};             // { [patternKey]: { x, y } } — UV offset in tile units
+let tileGlobalTransforms = {};    // { [patternKey]: { rotation: 0|1|2|3, flip: bool } } — for large tiles >1 m
 let tileOffsetDragMode = false;   // โหมดลากขยับตำแหน่งกระเบื้อง
 let isDraggingTileOffset = false;
 let tileOffsetDragPattern = null;
@@ -262,9 +269,12 @@ function serializeDesignState() {
         flipData,
         floorTextureData,
         wallTextureData,
-        customTiles: tilePatternList.filter(t => t.key.startsWith('custom_')),
+        customTiles: tilePatternList.filter(t => t.key.startsWith('custom_') && !t.key.startsWith('custom_wall_')),
+        customWalls: wallTextureList.filter(w => w.key.startsWith('custom_wall_')),
+        customFixtures: fixtureCatalog.filter(f => f.key.startsWith('custom_fixture_')),
         removedWalls: Array.from(removedWalls),
         tileOffsets,
+        tileGlobalTransforms,
         fixtures
     };
 }
@@ -308,12 +318,39 @@ function applyDesignState(state) {
         renderTileSwatches();
     }
 
+    if (Array.isArray(state.customWalls)) {
+        state.customWalls.forEach(entry => {
+            if (!wallTextureList.some(w => w.key === entry.key)) {
+                wallTextureList.push(entry);
+                const mat = loadImageWallMaterial(entry.url, entry.repeatX ?? 2, entry.repeatYPerMeter ?? 1, 0);
+                mat.userData = { repeatX: entry.repeatX ?? 2, repeatYPerMeter: entry.repeatYPerMeter ?? 1 };
+                wallMaterials[entry.key] = mat;
+            }
+        });
+        renderWallTextureOptions();
+        renderWallSwatches();
+    }
+
+    if (Array.isArray(state.customFixtures)) {
+        state.customFixtures.forEach(entry => {
+            if (!fixtureCatalog.some(f => f.key === entry.key)) {
+                fixtureCatalog.push(entry);
+            }
+        });
+        renderFixtureSwatches();
+    }
+
     floorTextureData = state.floorTextureData || {};
     wallTextureData = state.wallTextureData || {};
     if (state.tileOffsets && typeof state.tileOffsets === 'object') {
         tileOffsets = { ...state.tileOffsets };
     } else {
         tileOffsets = {};
+    }
+    if (state.tileGlobalTransforms && typeof state.tileGlobalTransforms === 'object') {
+        tileGlobalTransforms = { ...state.tileGlobalTransforms };
+    } else {
+        tileGlobalTransforms = {};
     }
     tileBrush = state.tilePattern;
     wallBrush = state.wallPattern;
@@ -609,6 +646,28 @@ scene.add(roomGroup);
 const fixturesGroup = new THREE.Group();
 scene.add(fixturesGroup);
 
+// Hover preview group — แสดง highlight ก่อนคลิก
+const hoverGroup = new THREE.Group();
+scene.add(hoverGroup);
+const hoverMaterial = new THREE.MeshBasicMaterial({
+    color: 0x3b82f6, transparent: true, opacity: 0.38,
+    depthWrite: false, side: THREE.DoubleSide,
+});
+
+// Cell selection highlight group (orange)
+const selectionGroup = new THREE.Group();
+scene.add(selectionGroup);
+const selectionMaterial = new THREE.MeshBasicMaterial({
+    color: 0xf59e0b, transparent: true, opacity: 0.50,
+    depthWrite: false, side: THREE.DoubleSide,
+});
+
+// Ghost wall material (semi-transparent white, for removed walls)
+const ghostWallMaterial = new THREE.MeshBasicMaterial({
+    color: 0xffffff, transparent: true, opacity: 0.20,
+    depthWrite: false, side: THREE.DoubleSide,
+});
+
 // Raycaster สำหรับคลิกเลือกกระเบื้อง
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
@@ -630,6 +689,7 @@ window.resetGrid = function() {
     floorTextureData = {};
     wallTextureData = {};
     tileOffsets = {};
+    tileGlobalTransforms = {};
     removedWalls.clear();
     placementMode = null;
     while (fixturesGroup.children.length > 0) {
@@ -814,8 +874,9 @@ function createFixtureMesh(type) {
     const { width, height, depth } = config;
     const slabDepth = Math.min(depth, wallThickness);
     const texture = fixtureTextures[type];
+    const isWindowStyle = type === 'window' || config.renderAs === 'window';
 
-    if (type === 'window') {
+    if (isWindowStyle) {
         const frameDepth = Math.max(0.04, slabDepth * 0.6);
         const frameMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.75 });
         const frame = new THREE.Mesh(new THREE.BoxGeometry(width + 0.08, height + 0.08, frameDepth), frameMat);
@@ -982,9 +1043,14 @@ function calculatePricingSummary() {
     const offsetX = (gridWidth * 1) / 2 - 0.5;
     const offsetZ = (gridHeight * 1) / 2 - 0.5;
 
-    // นับ unique tile grid positions ต่อลาย (ตรงกับโมเดล 3D จริง)
-    // เหมือนกับ world-space UV ใน build3D — เศษแม้นิดเดียวก็นับ 1 แผ่น
-    const patternData = {}; // { [patternKey]: { area, tileSet: Set<string> } }
+    // นับ unique tile grid positions (absolute UV) ต่อ pattern เฉพาะ cell ที่มีกระเบื้อง
+    // — ทุกขนาดแผ่นใช้ absolute grid positions → ตอบสนอง tileOffset ที่ผู้ใช้ลาก
+    // — แผ่นพอดีขอบห้อง (ขอบ UV ตรงขอบห้อง) → ทุก cell map grid เดียว → นับน้อย
+    // — ขยับแล้วขอบตัดผ่านห้อง → หลาย grid positions → นับเพิ่ม
+    // — แผ่นเล็กแทรกใน cell ของแผ่นใหญ่: cell นั้นไม่ถูกเพิ่มใน patternData ของแผ่นใหญ่
+    //   ถ้า cell อื่นยังครอบ grid instance เดิมอยู่ → แผ่นใหญ่ยังนับ
+    //   ถ้าแผ่นเล็ก cover ทุก cell → แผ่นใหญ่ไม่มี cell เหลือ → ไม่นับ
+    const patternData = {};
     let totalAreaSqm = 0;
 
     for (let x = 0; x < cw; x++) {
@@ -996,36 +1062,39 @@ function calculatePricingSummary() {
             const cellPattern = floorTextureData[`${x},${y}`] || tilePattern;
             totalAreaSqm += cellArea;
 
-            if (!patternData[cellPattern]) patternData[cellPattern] = { area: 0, tileSet: new Set() };
-            patternData[cellPattern].area += cellArea;
+            if (!patternData[cellPattern]) {
+                const meta = getTileMetaByKey(cellPattern);
+                const { widthM: tW, lengthM: tL } = getTileSizeInMeters(meta);
+                patternData[cellPattern] = {
+                    meta,
+                    safeW: (tW > 0 && Number.isFinite(tW)) ? tW : 0.6,
+                    safeL: (tL > 0 && Number.isFinite(tL)) ? tL : 0.6,
+                    tileOff: tileOffsets[cellPattern] || { x: 0, y: 0 },
+                    area: 0,
+                    tileSet: new Set()
+                };
+            }
+            const pd = patternData[cellPattern];
+            pd.area += cellArea;
 
-            const meta = getTileMetaByKey(cellPattern);
-            const { widthM: tW, lengthM: tL } = getTileSizeInMeters(meta);
-            const safeW = (tW > 0 && Number.isFinite(tW)) ? tW : 0.6;
-            const safeL = (tL > 0 && Number.isFinite(tL)) ? tL : 0.6;
-            const tileOff = tileOffsets[cellPattern] || { x: 0, y: 0 };
-
-            // World-space position ของ cell (เหมือน build3D)
+            // World-space center ของ cell (เหมือน build3D)
             const cx = x - offsetX - (1 - fracX) / 2;
             const cz = y - offsetZ - (1 - fracY) / 2;
 
-            // UV range ของ cell นี้ (ใช้สูตรเดียวกับ build3D)
-            // X: wx = cx ± fracX/2,  u = wx/safeW + tileOff.x
-            // Z: wz = cz ∓ ly (local y → world -z after rotation), wz range = cz ± fracY/2
-            const uMin = (cx - fracX / 2) / safeW + tileOff.x;
-            const uMax = (cx + fracX / 2) / safeW + tileOff.x;
-            const vMin = (cz - fracY / 2) / safeL + tileOff.y;
-            const vMax = (cz + fracY / 2) / safeL + tileOff.y;
+            // UV ขอบ cell พร้อม tileOffset (สูตรเดียวกับ build3D)
+            const uMin = (cx - fracX / 2) / pd.safeW + pd.tileOff.x;
+            const uMax = (cx + fracX / 2) / pd.safeW + pd.tileOff.x;
+            const vMin = (cz - fracY / 2) / pd.safeL + pd.tileOff.y;
+            const vMax = (cz + fracY / 2) / pd.safeL + pd.tileOff.y;
 
-            // Tile grid indices ที่ overlap กับ cell นี้
+            // Absolute tile grid indices ที่ cell นี้ครอบ
             const tiX0 = Math.floor(uMin);
             const tiX1 = Math.floor(uMax - 1e-9);
             const tiZ0 = Math.floor(vMin);
             const tiZ1 = Math.floor(vMax - 1e-9);
-
             for (let ti = tiX0; ti <= tiX1; ti++) {
                 for (let tj = tiZ0; tj <= tiZ1; tj++) {
-                    patternData[cellPattern].tileSet.add(`${ti},${tj}`);
+                    pd.tileSet.add(`${ti},${tj}`);
                 }
             }
         }
@@ -1038,10 +1107,9 @@ function calculatePricingSummary() {
     let totalPrice = 0;
 
     const groups = Object.entries(patternData).map(([patternKey, data]) => {
-        const meta = getTileMetaByKey(patternKey);
-        const { widthM, lengthM } = getTileSizeInMeters(meta);
-        const rawTiles = data.tileSet.size; // นับ unique tile positions
-        const tilesWithWaste = Math.ceil(rawTiles * 1.05);
+        const meta = data.meta;
+        const rawTiles = data.tileSet.size;
+        const tilesWithWaste = rawTiles;
         const tilesPerBox = Math.max(1, Math.ceil(Number(meta?.tilesPerBox) || 1));
         const pricePerBox = Math.max(0, Number(meta?.pricePerBox) || 0);
         const boxes = tilesWithWaste > 0 ? Math.ceil(tilesWithWaste / tilesPerBox) : 0;
@@ -1424,6 +1492,10 @@ function build3D() {
             const cellUCx = cx / safeW + tileOff.x; // cell center in tile UV space (X)
             const cellUCz = cz / safeL + tileOff.y; // cell center in tile UV space (Z)
 
+            // Global transform for large tiles (>1 m) — applied uniformly on world-space UV
+            const isLargeTile = safeW > 1.0 + 1e-9 || safeL > 1.0 + 1e-9;
+            const gt = isLargeTile ? (tileGlobalTransforms[cellPattern] || { rotation: 0, flip: false }) : null;
+
             // Custom Plane Geometry for fractional edge cells
             const cGeometry = new THREE.PlaneGeometry(fracX, fracY);
 
@@ -1439,8 +1511,17 @@ function build3D() {
                     const wz = cz - ly;
                     let u = wx / safeW + tileOff.x;
                     let v = wz / safeL + tileOff.y;
-                    // Per-cell rotation/flip around the cell's UV centre
-                    if (cellRotRad !== 0 || doFlip) {
+                    if (isLargeTile) {
+                        // Global UV transform: rotate/flip the world-space UV axes uniformly
+                        // so all cells of the same large tile transform together seamlessly
+                        if (gt.flip) u = -u;
+                        switch (gt.rotation % 4) {
+                            case 1: { const t = u; u = v; v = -t; break; } // 90° CW
+                            case 2: { u = -u; v = -v; break; }              // 180°
+                            case 3: { const t = u; u = -v; v = t; break; }  // 270° CW
+                        }
+                    } else if (cellRotRad !== 0 || doFlip) {
+                        // Per-cell rotation/flip around the cell's UV centre (small tiles only)
                         let du = u - cellUCx;
                         let dv = v - cellUCz;
                         if (doFlip) du = -du;
@@ -1495,6 +1576,37 @@ function build3D() {
             if (x === cw-1 || gridData[x+1][y] === 0) {
                 createWall(cx + fracX/2, cz, 'right', x, y, fracY);
             }
+        }
+    }
+
+    // Ghost walls: แสดง outline ของกำแพงที่ถูกลบ เฉพาะเวลา wallDeleteMode เปิดอยู่
+    if (wallDeleteMode && removedWalls.size > 0) {
+        for (const wallKey of removedWalls) {
+            const parts = wallKey.split(',');
+            const gx = parseInt(parts[0]);
+            const gy = parseInt(parts[1]);
+            const side = parts[2];
+            if (!gridData[gx]?.[gy]) continue;
+            const cwG = Math.ceil(gridWidth);
+            const chG = Math.ceil(gridHeight);
+            const offX = gridWidth / 2 - 0.5;
+            const offZ = gridHeight / 2 - 0.5;
+            const fX = (gx === cwG - 1 && gridWidth % 1 !== 0) ? gridWidth % 1 : 1;
+            const fY = (gy === chG - 1 && gridHeight % 1 !== 0) ? gridHeight % 1 : 1;
+            const cxG = gx - offX - (1 - fX) / 2;
+            const czG = gy - offZ - (1 - fY) / 2;
+            let wx, wz, segLen;
+            if (side === 'top')    { wx = cxG; wz = czG - fY/2; segLen = fX; }
+            else if (side === 'bottom') { wx = cxG; wz = czG + fY/2; segLen = fX; }
+            else if (side === 'left')   { wx = cxG - fX/2; wz = czG; segLen = fY; }
+            else                        { wx = cxG + fX/2; wz = czG; segLen = fY; }
+            const h = parseFloat(wallHeight);
+            const ghostGeom = new THREE.BoxGeometry(segLen, h, wallThickness * 1.2);
+            const ghost = new THREE.Mesh(ghostGeom, ghostWallMaterial);
+            ghost.position.set(wx, h / 2, wz);
+            if (side === 'left' || side === 'right') ghost.rotation.y = Math.PI / 2;
+            ghost.userData = { isGhostWall: true, wallKey, x: gx, y: gy, side };
+            roomGroup.add(ghost);
         }
     }
 
@@ -1572,10 +1684,50 @@ window.toggleWallDeleteMode = function(enabled) {
         placementMode = null;
         renderFixtureSwatches();
     }
+    build3D(); // rebuild เพื่อแสดง/ซ่อน ghost walls
 }
 
 window.toggleTileFlipMode = function(enabled) {
     tileFlipMode = enabled;
+}
+
+window.setTilePaintMode = function(mode) {
+    tilePaintMode = mode; // 'cell' | 'footprint'
+    clearHoverHighlight();
+}
+
+window.setTileDragPaintMode = function(enabled) {
+    tileDragPaintMode = enabled;
+    if (!enabled) { isDragPainting = false; dragPaintedCells.clear(); }
+}
+
+window.setCellSelectMode = function(enabled) {
+    cellSelectMode = enabled;
+    if (!enabled) {
+        selectedCells.clear();
+        updateSelectionHighlight();
+    }
+    clearHoverHighlight();
+}
+
+window.paintSelectedCells = function() {
+    if (selectedCells.size === 0) return;
+    const targetBrush = (typeof tileBrush !== 'undefined' && tileBrush) || tilePattern;
+    for (const key of selectedCells) {
+        const [gx, gy] = key.split(',').map(Number);
+        floorTextureData[`${gx},${gy}`] = targetBrush;
+        rotationData[gx][gy] = 0;
+        flipData[gx][gy] = 0;
+    }
+    selectedCells.clear();
+    updateSelectionHighlight();
+    build3D();
+    recordHistorySnapshot();
+}
+
+window.clearCellSelection = function() {
+    selectedCells.clear();
+    updateSelectionHighlight();
 }
 
 window.setTileOffsetMode = function(enabled) {
@@ -1589,6 +1741,22 @@ window.setTileOffsetMode = function(enabled) {
     }
 }
 
+// ปรับ tile offset ให้ขอบกระเบื้องตรงกับขอบห้อง (room-aligned snap)
+window.snapTileToRoom = function() {
+    const key = tileBrush || tilePattern;
+    const meta = getTileMetaByKey(key);
+    const { widthM, lengthM } = getTileSizeInMeters(meta);
+    const safeW = (widthM > 0 && Number.isFinite(widthM)) ? widthM : 0.6;
+    const safeL = (lengthM > 0 && Number.isFinite(lengthM)) ? lengthM : 0.6;
+    const roomMinX = -(gridWidth / 2);
+    const roomMinZ = -(gridHeight / 2);
+    // หา offset ที่ทำให้กระเบื้องชิ้นแรกเริ่มที่ขอบซ้าย/บนของห้องพอดี
+    const offX = Math.ceil(roomMinX / safeW) - roomMinX / safeW;
+    const offZ = Math.ceil(roomMinZ / safeL) - roomMinZ / safeL;
+    tileOffsets[key] = { x: offX, y: offZ };
+    build3D();
+};
+
 window.resetTileOffset = function() {
     const pattern = tileBrush || tilePattern;
     if (tileOffsets[pattern]) {
@@ -1598,6 +1766,115 @@ window.resetTileOffset = function() {
     }
 }
 
+// ─── Element Management API ───────────────────────────────────────────────────
+window.getDesignElements = function() {
+    const cw = Math.ceil(gridWidth);
+    const ch = Math.ceil(gridHeight);
+
+    // Tiles: one entry per filled cell
+    const tiles = [];
+    for (let x = 0; x < cw; x++) {
+        for (let y = 0; y < ch; y++) {
+            if (!gridData[x][y]) continue;
+            const patternKey = floorTextureData[`${x},${y}`] || tilePattern;
+            const meta = getTileMetaByKey(patternKey);
+            const { widthM, lengthM } = getTileSizeInMeters(meta);
+            tiles.push({
+                x, y,
+                patternKey,
+                label: meta?.label || patternKey,
+                rotation: rotationData[x]?.[y] || 0,
+                flip: !!(flipData[x]?.[y]),
+                widthM: widthM || 0.6,
+                lengthM: lengthM || 0.6
+            });
+        }
+    }
+
+    // Walls: only boundary walls (interior shared edges excluded)
+    const walls = [];
+    const sides = ['top', 'bottom', 'left', 'right'];
+    for (let x = 0; x < cw; x++) {
+        for (let y = 0; y < ch; y++) {
+            if (!gridData[x][y]) continue;
+            for (const side of sides) {
+                let isBoundary = false;
+                if (side === 'top'    && (y === 0    || !gridData[x]?.[y-1])) isBoundary = true;
+                if (side === 'bottom' && (y === ch-1 || !gridData[x]?.[y+1])) isBoundary = true;
+                if (side === 'left'   && (x === 0    || !gridData[x-1]?.[y])) isBoundary = true;
+                if (side === 'right'  && (x === cw-1 || !gridData[x+1]?.[y])) isBoundary = true;
+                if (!isBoundary) continue;
+                const wallKey = `${x},${y},${side}`;
+                const patternKey = wallTextureData[wallKey] || wallPattern;
+                const meta = wallTextureList.find(w => w.key === patternKey);
+                walls.push({
+                    wallKey, x, y, side,
+                    patternKey,
+                    label: meta?.label || patternKey,
+                    removed: removedWalls.has(wallKey)
+                });
+            }
+        }
+    }
+
+    // Fixtures
+    const fixtures = fixturesGroup.children.map((f, idx) => {
+        const data = f.userData || {};
+        const catEntry = fixtureCatalog.find(c => c.key === data.type);
+        return {
+            index: idx,
+            type: data.type || 'unknown',
+            label: catEntry?.label || data.type || 'Unknown',
+            attachedWallKey: data.attachedWallKey || null,
+            position: { x: f.position.x, y: f.position.y, z: f.position.z },
+            rotationY: f.rotation.y
+        };
+    });
+
+    return { tiles, walls, fixtures, gridWidth, gridHeight, wallHeight: Number(wallHeight) };
+};
+
+window.deleteFixtureByIndex = function(idx) {
+    const children = [...fixturesGroup.children];
+    if (idx >= 0 && idx < children.length) {
+        fixturesGroup.remove(children[idx]);
+        recordHistorySnapshot();
+        build3D();
+    }
+};
+
+window.setTileCellRotation = function(x, y, rot) {
+    if (rotationData[x]?.[y] !== undefined) {
+        rotationData[x][y] = ((rot % 4) + 4) % 4;
+        build3D();
+        recordHistorySnapshot();
+    }
+};
+
+window.setTileCellFlip = function(x, y, flip) {
+    if (flipData[x]?.[y] !== undefined) {
+        flipData[x][y] = flip ? 1 : 0;
+        build3D();
+        recordHistorySnapshot();
+    }
+};
+
+window.removeWallByKey = function(key) {
+    removedWalls.add(key);
+    wallLayoutMode = WALL_LAYOUT_CUSTOM;
+    syncWallLayoutControls();
+    build3D();
+    recordHistorySnapshot();
+};
+
+window.restoreWallByKey = function(key) {
+    removedWalls.delete(key);
+    wallLayoutMode = WALL_LAYOUT_CUSTOM;
+    syncWallLayoutControls();
+    build3D();
+    recordHistorySnapshot();
+};
+
 window.handleCustomTileUpload = function(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1605,10 +1882,16 @@ window.handleCustomTileUpload = function(e) {
     const wInput = document.getElementById('customTileW');
     const lInput = document.getElementById('customTileL');
     const uInput = document.getElementById('customTileUnit');
+    const nameInput = document.getElementById('customTileName');
+    const priceInput = document.getElementById('customTilePrice');
+    const perBoxInput = document.getElementById('customTilePerBox');
     const w = parseFloat(wInput?.value || '60');
     const l = parseFloat(lInput?.value || '60');
     const unit = uInput?.value || 'cm';
-    
+    const tileName = nameInput?.value?.trim() || '';
+    const price = parseFloat(priceInput?.value || '0') || 0;
+    const perBox = Math.max(1, parseInt(perBoxInput?.value || '4') || 4);
+
     const reader = new FileReader();
     reader.onload = (event) => {
         const img = new Image();
@@ -1630,10 +1913,10 @@ window.handleCustomTileUpload = function(e) {
                     height = MAX_SIZE;
                 }
             }
-            canvas.width = width;
-            canvas.height = height;
+            canvas.width = Math.round(width);
+            canvas.height = Math.round(height);
             const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, width, height);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
             const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
 
@@ -1641,12 +1924,14 @@ window.handleCustomTileUpload = function(e) {
             // Add to catalog
             tilePatternList.push({
                 key: customKey,
-                label: `ลายส่วนตัว (${w}x${l}${unit})`,
+                label: tileName || `กระเบื้อง ${w}×${l}${unit}`,
                 type: 'image',
                 url: dataUrl,
                 width: w,
                 length: l,
                 unit: unit,
+                pricePerBox: price,
+                tilesPerBox: perBox,
             });
 
             // Create Texture for THREE
@@ -1654,6 +1939,7 @@ window.handleCustomTileUpload = function(e) {
 
             // Select it explicitly
             setTilePattern(customKey);
+            saveCatalog();
 
             // Reset input
             e.target.value = '';
@@ -1679,6 +1965,74 @@ function setWallTexture(patternKey) {
     renderWallSwatches();
 }
 
+window.handleCustomWallUpload = function(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const nameInput = document.getElementById('customWallName');
+    const wallName = nameInput?.value?.trim() || '';
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const MAX_SIZE = 512;
+            let w = img.width, h = img.height;
+            if (w > MAX_SIZE) { h *= MAX_SIZE / w; w = MAX_SIZE; }
+            if (h > MAX_SIZE) { w *= MAX_SIZE / h; h = MAX_SIZE; }
+            canvas.width = Math.round(w); canvas.height = Math.round(h);
+            canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
+            const customKey = `custom_wall_${Date.now()}`;
+            const entry = { key: customKey, label: wallName || 'กำแพงส่วนตัว', type: 'image', url: dataUrl, repeatX: 2, repeatYPerMeter: 1 };
+            wallTextureList.push(entry);
+            const mat = loadImageWallMaterial(dataUrl, 2, 1, 0);
+            mat.userData = { repeatX: 2, repeatYPerMeter: 1 };
+            wallMaterials[customKey] = mat;
+
+            renderWallTextureOptions(customKey);
+            renderWallSwatches();
+            setWallTexture(customKey);
+            saveCatalog();
+            if (nameInput) nameInput.value = '';
+            e.target.value = '';
+        };
+        img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+};
+
+window.addCustomFixtureType = function() {
+    const nameInput = document.getElementById('customFixtureName');
+    const styleInput = document.getElementById('customFixtureStyle');
+    const wInput = document.getElementById('customFixtureW');
+    const hInput = document.getElementById('customFixtureH');
+
+    const name = nameInput?.value?.trim() || '';
+    if (!name) { alert('กรุณาระบุชื่อ'); return; }
+    const style = styleInput?.value || 'door';
+    const w = Math.max(0.3, parseFloat(wInput?.value || (style === 'window' ? '0.9' : '0.95')));
+    const h = Math.max(0.3, parseFloat(hInput?.value || (style === 'window' ? '0.8' : '2.0')));
+
+    const customKey = `custom_fixture_${Date.now()}`;
+    fixtureCatalog.push({
+        key: customKey,
+        label: name,
+        type: customKey,
+        renderAs: style,
+        width: w, height: h,
+        depth: style === 'window' ? 0.08 : 0.1,
+        preview: style === 'window'
+            ? { base: '#93c5fd', accent: '#e2e8f0' }
+            : { base: '#b08968', accent: '#fef9c3' }
+    });
+
+    if (nameInput) nameInput.value = '';
+    renderFixtureSwatches();
+    saveCatalog();
+};
+
 window.fillAllTiles = function() {
     tilePattern = tileBrush || tilePattern;
     floorTextureData = {}; 
@@ -1696,9 +2050,26 @@ window.fillAllWalls = function() {
 window.rotateAllTiles = function() {
     const cw = Math.ceil(gridWidth);
     const ch = Math.ceil(gridHeight);
-    for(let x=0; x<cw; x++) {
-        for(let y=0; y<ch; y++) {
-            if(gridData[x][y]) rotationData[x][y] = (rotationData[x][y] + 1) % 4;
+    const processedLargePatterns = new Set();
+    for (let x = 0; x < cw; x++) {
+        for (let y = 0; y < ch; y++) {
+            if (!gridData[x][y]) continue;
+            const cellPattern = floorTextureData[`${x},${y}`] || tilePattern;
+            const meta = getTileMetaByKey(cellPattern);
+            const { widthM, lengthM } = getTileSizeInMeters(meta);
+            const safeW = (widthM > 0 && Number.isFinite(widthM)) ? widthM : 0.6;
+            const safeL = (lengthM > 0 && Number.isFinite(lengthM)) ? lengthM : 0.6;
+            if (safeW > 1.0 + 1e-9 || safeL > 1.0 + 1e-9) {
+                // Large tile: rotate global UV transform once per pattern
+                if (!processedLargePatterns.has(cellPattern)) {
+                    processedLargePatterns.add(cellPattern);
+                    const gt = tileGlobalTransforms[cellPattern] || { rotation: 0, flip: false };
+                    tileGlobalTransforms[cellPattern] = { ...gt, rotation: (gt.rotation + 1) % 4 };
+                }
+            } else {
+                // Small tile: per-cell rotation
+                rotationData[x][y] = (rotationData[x][y] + 1) % 4;
+            }
         }
     }
     build3D();
@@ -1708,9 +2079,26 @@ window.rotateAllTiles = function() {
 window.flipAllTiles = function() {
     const cw = Math.ceil(gridWidth);
     const ch = Math.ceil(gridHeight);
-    for(let x=0; x<cw; x++) {
-        for(let y=0; y<ch; y++) {
-            if(gridData[x][y]) flipData[x][y] = flipData[x][y] ? 0 : 1;
+    const processedLargePatterns = new Set();
+    for (let x = 0; x < cw; x++) {
+        for (let y = 0; y < ch; y++) {
+            if (!gridData[x][y]) continue;
+            const cellPattern = floorTextureData[`${x},${y}`] || tilePattern;
+            const meta = getTileMetaByKey(cellPattern);
+            const { widthM, lengthM } = getTileSizeInMeters(meta);
+            const safeW = (widthM > 0 && Number.isFinite(widthM)) ? widthM : 0.6;
+            const safeL = (lengthM > 0 && Number.isFinite(lengthM)) ? lengthM : 0.6;
+            if (safeW > 1.0 + 1e-9 || safeL > 1.0 + 1e-9) {
+                // Large tile: flip global UV transform once per pattern
+                if (!processedLargePatterns.has(cellPattern)) {
+                    processedLargePatterns.add(cellPattern);
+                    const gt = tileGlobalTransforms[cellPattern] || { rotation: 0, flip: false };
+                    tileGlobalTransforms[cellPattern] = { ...gt, flip: !gt.flip };
+                }
+            } else {
+                // Small tile: per-cell flip
+                flipData[x][y] = flipData[x][y] ? 0 : 1;
+            }
         }
     }
     build3D();
@@ -1723,6 +2111,97 @@ renderer.domElement.addEventListener('pointerdown', onPointerDown, false);
 renderer.domElement.addEventListener('pointermove', onPointerMove, false);
 renderer.domElement.addEventListener('pointerup', onPointerUp, false);
 renderer.domElement.addEventListener('contextmenu', onContextMenu, false);
+renderer.domElement.addEventListener('mouseleave', clearHoverHighlight, false);
+
+// ── Hover highlight helpers ────────────────────────────────────────────────
+function clearHoverHighlight() {
+    while (hoverGroup.children.length > 0) hoverGroup.remove(hoverGroup.children[0]);
+}
+
+/**
+ * คำนวณ grid cells ที่อยู่ใน tile footprint ของจุด (wx, wz)
+ * คืน array ของ { gx, gy, cx, cz, fracX, fracY }
+ */
+function computeFootprintCells(wx, wz, patternKey) {
+    const meta = getTileMetaByKey(patternKey);
+    const { widthM, lengthM } = getTileSizeInMeters(meta);
+    const safeW = (widthM > 0 && Number.isFinite(widthM)) ? widthM : 0.6;
+    const safeL = (lengthM > 0 && Number.isFinite(lengthM)) ? lengthM : 0.6;
+    const tileOff = tileOffsets[patternKey] || { x: 0, y: 0 };
+
+    const ti = Math.floor(wx / safeW + tileOff.x);
+    const tj = Math.floor(wz / safeL + tileOff.y);
+    const tileX0 = (ti - tileOff.x) * safeW;
+    const tileX1 = (ti + 1 - tileOff.x) * safeW;
+    const tileZ0 = (tj - tileOff.y) * safeL;
+    const tileZ1 = (tj + 1 - tileOff.y) * safeL;
+
+    const cw = Math.ceil(gridWidth);
+    const ch = Math.ceil(gridHeight);
+    const offsetX = gridWidth / 2 - 0.5;
+    const offsetZ = gridHeight / 2 - 0.5;
+    const cells = [];
+    for (let gx = 0; gx < cw; gx++) {
+        for (let gy = 0; gy < ch; gy++) {
+            if (gridData[gx][gy] === 0) continue;
+            const fracX = (gx === cw - 1 && gridWidth % 1 !== 0) ? gridWidth % 1 : 1;
+            const fracY = (gy === ch - 1 && gridHeight % 1 !== 0) ? gridHeight % 1 : 1;
+            const cx = gx - offsetX - (1 - fracX) / 2;
+            const cz = gy - offsetZ - (1 - fracY) / 2;
+            if ((cx - fracX / 2) < tileX1 - 1e-9 && (cx + fracX / 2) > tileX0 + 1e-9 &&
+                (cz - fracY / 2) < tileZ1 - 1e-9 && (cz + fracY / 2) > tileZ0 + 1e-9) {
+                cells.push({ gx, gy, cx, cz, fracX, fracY });
+            }
+        }
+    }
+    return cells;
+}
+
+function addHighlightPlane(group, material, cx, cz, fracX, fracY, y = 0.015) {
+    const geo = new THREE.PlaneGeometry(fracX, fracY);
+    const mesh = new THREE.Mesh(geo, material);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(cx, y, cz);
+    group.add(mesh);
+}
+
+function getCellWorldInfo(gx, gy) {
+    const cw = Math.ceil(gridWidth);
+    const ch = Math.ceil(gridHeight);
+    const offsetX = gridWidth / 2 - 0.5;
+    const offsetZ = gridHeight / 2 - 0.5;
+    const fracX = (gx === cw - 1 && gridWidth % 1 !== 0) ? gridWidth % 1 : 1;
+    const fracY = (gy === ch - 1 && gridHeight % 1 !== 0) ? gridHeight % 1 : 1;
+    const cx = gx - offsetX - (1 - fracX) / 2;
+    const cz = gy - offsetZ - (1 - fracY) / 2;
+    return { cx, cz, fracX, fracY };
+}
+
+function updateHoverHighlight(wx, wz, patternKey, hitGx, hitGy) {
+    clearHoverHighlight();
+    if (cellSelectMode) return; // ไม่แสดง hover ขณะอยู่ใน select mode
+    let cells;
+    if (tilePaintMode === 'footprint') {
+        cells = computeFootprintCells(wx, wz, patternKey);
+    } else {
+        const info = getCellWorldInfo(hitGx, hitGy);
+        cells = [info];
+    }
+    for (const { cx, cz, fracX, fracY } of cells) {
+        addHighlightPlane(hoverGroup, hoverMaterial, cx, cz, fracX, fracY);
+    }
+}
+
+function updateSelectionHighlight() {
+    while (selectionGroup.children.length > 0) selectionGroup.remove(selectionGroup.children[0]);
+    for (const key of selectedCells) {
+        const [gx, gy] = key.split(',').map(Number);
+        if (gridData[gx]?.[gy] === 0) continue;
+        const { cx, cz, fracX, fracY } = getCellWorldInfo(gx, gy);
+        addHighlightPlane(selectionGroup, selectionMaterial, cx, cz, fracX, fracY, 0.018);
+    }
+}
+// ──────────────────────────────────────────────────────────────────────────
 
 function onPointerDown(event) {
     if (event.button !== 0) return;
@@ -1731,6 +2210,19 @@ function onPointerDown(event) {
     mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
     raycaster.setFromCamera(mouse, camera);
+
+    // โหมดลากทาสี (drag-paint): เริ่มลากเมื่อกดบนพื้น
+    if (tileDragPaintMode && !cellSelectMode) {
+        const tileHits = raycaster.intersectObjects(roomGroup.children, true);
+        const tileHit = tileHits.find(hit => hit.object.userData.isTile);
+        if (tileHit) {
+            isDragPainting = true;
+            dragPaintedCells.clear();
+            controls.enabled = false;
+            ignoreNextClick = true;
+            return;
+        }
+    }
 
     // โหมดลากขยับตำแหน่งกระเบื้อง
     if (tileOffsetDragMode) {
@@ -1811,88 +2303,68 @@ function onCanvasClick(event) {
 
         // ถ้าคลิกพื้นกระจก/กระเบื้อง
         if (data.isTile) {
+            const clickedGx = data.x;
+            const clickedGy = data.y;
+
+            // โหมดเลือก cell: toggle cell in/out of selection
+            if (cellSelectMode) {
+                const key = `${clickedGx},${clickedGy}`;
+                if (selectedCells.has(key)) selectedCells.delete(key);
+                else selectedCells.add(key);
+                updateSelectionHighlight();
+                return;
+            }
+
             const targetBrush = tileBrush || tilePattern;
-
-            // --- หา footprint ของกระเบื้องที่ถูกคลิก ---
-            // ใช้ world position จุดที่ cursor ชนพื้น
-            const wx = hit.point.x;
-            const wz = hit.point.z;
-
-            const brushMeta = getTileMetaByKey(targetBrush);
-            const { widthM, lengthM } = getTileSizeInMeters(brushMeta);
-            const safeW = (widthM > 0 && Number.isFinite(widthM)) ? widthM : 0.6;
-            const safeL = (lengthM > 0 && Number.isFinite(lengthM)) ? lengthM : 0.6;
-            const tileOff = tileOffsets[targetBrush] || { x: 0, y: 0 };
-
-            // index ของกระเบื้องที่ถูกคลิก
-            const ti = Math.floor(wx / safeW + tileOff.x);
-            const tj = Math.floor(wz / safeL + tileOff.y);
-
-            // world bounds ของกระเบื้องชิ้นนั้น
-            const tileX0 = (ti - tileOff.x) * safeW;
-            const tileX1 = (ti + 1 - tileOff.x) * safeW;
-            const tileZ0 = (tj - tileOff.y) * safeL;
-            const tileZ1 = (tj + 1 - tileOff.y) * safeL;
-
-            // รวบรวม grid cells ทุกช่องที่ทับกับ footprint ของกระเบื้องชิ้นนี้
-            const cw = Math.ceil(gridWidth);
-            const ch = Math.ceil(gridHeight);
-            const offsetX = gridWidth / 2 - 0.5;
-            const offsetZ = gridHeight / 2 - 0.5;
-
-            const cellsToUpdate = [];
-            for (let gx = 0; gx < cw; gx++) {
-                for (let gy = 0; gy < ch; gy++) {
-                    if (gridData[gx][gy] === 0) continue;
-                    const fracX = (gx === cw - 1 && gridWidth % 1 !== 0) ? gridWidth % 1 : 1;
-                    const fracY = (gy === ch - 1 && gridHeight % 1 !== 0) ? gridHeight % 1 : 1;
-                    const cx = gx - offsetX - (1 - fracX) / 2;
-                    const cz = gy - offsetZ - (1 - fracY) / 2;
-                    const cellX0 = cx - fracX / 2;
-                    const cellX1 = cx + fracX / 2;
-                    const cellZ0 = cz - fracY / 2;
-                    const cellZ1 = cz + fracY / 2;
-                    // overlap check
-                    if (cellX0 < tileX1 - 1e-9 && cellX1 > tileX0 + 1e-9 &&
-                        cellZ0 < tileZ1 - 1e-9 && cellZ1 > tileZ0 + 1e-9) {
-                        cellsToUpdate.push({ gx, gy });
-                    }
-                }
-            }
-
-            // fallback: ถ้าไม่มี cell overlap (เช่น tile offset แปลกๆ) ใช้ cell ที่ raycaster ชนแทน
-            if (cellsToUpdate.length === 0) {
-                cellsToUpdate.push({ gx: data.x, gy: data.y });
-            }
+            const currentPattern = floorTextureData[`${clickedGx},${clickedGy}`] || tilePattern;
 
             if (tileFlipMode) {
-                // โหมดกระจก: สลับ flip ทุก cell ใน footprint
-                for (const { gx, gy } of cellsToUpdate) {
-                    flipData[gx][gy] = flipData[gx][gy] ? 0 : 1;
-                }
+                // โหมดกระจก: สลับ flip เฉพาะ cell ที่คลิก
+                flipData[clickedGx][clickedGy] = flipData[clickedGx][clickedGy] ? 0 : 1;
+            } else if (currentPattern === targetBrush) {
+                // คลิก cell ที่มีลายเดิมอยู่แล้ว → หมุนเฉพาะ cell นั้น
+                rotationData[clickedGx][clickedGy] = (rotationData[clickedGx][clickedGy] + 1) % 4;
             } else {
-                // ถ้าทุก cell ใน footprint มีลายเดียวกับ brush อยู่แล้ว → หมุน
-                const allSame = cellsToUpdate.every(
-                    ({ gx, gy }) => (floorTextureData[`${gx},${gy}`] || tilePattern) === targetBrush
-                );
-                if (allSame) {
-                    for (const { gx, gy } of cellsToUpdate) {
-                        rotationData[gx][gy] = (rotationData[gx][gy] + 1) % 4;
-                    }
-                } else {
-                    // ทาสีทุก cell ใน footprint พร้อมกัน
-                    for (const { gx, gy } of cellsToUpdate) {
+                // วางลายใหม่
+                if (tilePaintMode === 'footprint') {
+                    const footprint = computeFootprintCells(hit.point.x, hit.point.z, targetBrush);
+                    const targets = footprint.length > 0 ? footprint : [{ gx: clickedGx, gy: clickedGy }];
+                    for (const { gx, gy } of targets) {
                         floorTextureData[`${gx},${gy}`] = targetBrush;
                         rotationData[gx][gy] = 0;
                         flipData[gx][gy] = 0;
                     }
+                } else {
+                    floorTextureData[`${clickedGx},${clickedGy}`] = targetBrush;
+                    rotationData[clickedGx][clickedGy] = 0;
+                    flipData[clickedGx][clickedGy] = 0;
                 }
             }
 
+            clearHoverHighlight();
             build3D();
             recordHistorySnapshot();
-        } 
-        // ถ้าคลิกกำแพง
+            // Dispatch selection event for inspector panel
+            document.dispatchEvent(new CustomEvent('pmElementSelected', { detail: {
+                type: 'tile', x: clickedGx, y: clickedGy,
+                patternKey: floorTextureData[`${clickedGx},${clickedGy}`] || tilePattern,
+                rotation: rotationData[clickedGx][clickedGy] || 0,
+                flip: !!(flipData[clickedGx][clickedGy])
+            }}));
+        }
+        // ถ้าคลิก ghost wall (กำแพงที่ถูกลบ) → คืนกลับมา
+        else if (data.isGhostWall) {
+            removedWalls.delete(data.wallKey);
+            wallLayoutMode = WALL_LAYOUT_CUSTOM;
+            syncWallLayoutControls();
+            build3D();
+            recordHistorySnapshot();
+            document.dispatchEvent(new CustomEvent('pmElementSelected', { detail: {
+                type: 'wall', wallKey: data.wallKey, x: data.x, y: data.y, side: data.side,
+                patternKey: wallTextureData[data.wallKey] || wallPattern, removed: false
+            }}));
+        }
+        // ถ้าคลิกกำแพงจริง
         else if (data.isWall) {
             const wallKey = `${data.x},${data.y},${data.side}`;
             if (wallDeleteMode) {
@@ -1905,6 +2377,11 @@ function onCanvasClick(event) {
             }
             build3D();
             recordHistorySnapshot();
+            document.dispatchEvent(new CustomEvent('pmElementSelected', { detail: {
+                type: 'wall', wallKey, x: data.x, y: data.y, side: data.side,
+                patternKey: wallTextureData[wallKey] || wallPattern,
+                removed: removedWalls.has(wallKey)
+            }}));
         }
     }
 }
@@ -1934,6 +2411,58 @@ function onPointerMove(event) {
         return;
     }
 
+    // Drag-paint: ทาสีเซลที่ลากผ่านขณะกดปุ่ม
+    if (isDragPainting && (event.buttons & 1) !== 0) {
+        const rect3 = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((event.clientX - rect3.left) / rect3.width) * 2 - 1;
+        mouse.y = -((event.clientY - rect3.top) / rect3.height) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        const dpHits = raycaster.intersectObjects(roomGroup.children, true);
+        const dpTile = dpHits.find(h => h.object.userData.isTile);
+        if (dpTile) {
+            const { x: gx, y: gy } = dpTile.object.userData;
+            const key = `${gx},${gy}`;
+            if (!dragPaintedCells.has(key)) {
+                dragPaintedCells.add(key);
+                const targetBrush = (typeof tileBrush !== 'undefined' && tileBrush) || tilePattern;
+                if (tilePaintMode === 'footprint') {
+                    const cells = computeFootprintCells(dpTile.point.x, dpTile.point.z, targetBrush);
+                    const targets = cells.length > 0 ? cells : [{ gx, gy }];
+                    for (const { gx: fx, gy: fy } of targets) {
+                        const fk = `${fx},${fy}`;
+                        if (!dragPaintedCells.has(fk)) {
+                            dragPaintedCells.add(fk);
+                            floorTextureData[fk] = targetBrush;
+                            rotationData[fx][fy] = 0; flipData[fx][fy] = 0;
+                        }
+                    }
+                } else {
+                    floorTextureData[key] = targetBrush;
+                    rotationData[gx][gy] = 0; flipData[gx][gy] = 0;
+                }
+                dragMutatedState = true;
+                build3D();
+            }
+        }
+        return;
+    }
+
+    // Hover highlight preview (เฉพาะตอนไม่กดปุ่ม)
+    if ((event.buttons & 1) === 0 && !tileOffsetDragMode) {
+        const rect2 = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((event.clientX - rect2.left) / rect2.width) * 2 - 1;
+        mouse.y = -((event.clientY - rect2.top) / rect2.height) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        const hoverHits = raycaster.intersectObjects(roomGroup.children, true);
+        const hoverTile = hoverHits.find(h => h.object.userData.isTile);
+        if (hoverTile) {
+            const { x: hGx, y: hGy } = hoverTile.object.userData;
+            updateHoverHighlight(hoverTile.point.x, hoverTile.point.z, tileBrush || tilePattern, hGx, hGy);
+        } else {
+            clearHoverHighlight();
+        }
+    }
+
     if (!isDraggingFixture || !draggingFixture || (event.buttons & 1) === 0) return;
     const rect = renderer.domElement.getBoundingClientRect();
     mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -1949,6 +2478,14 @@ function onPointerMove(event) {
 }
 
 function onPointerUp() {
+    if (isDragPainting) {
+        isDragPainting = false;
+        if (dragMutatedState) recordHistorySnapshot();
+        dragPaintedCells.clear();
+        dragMutatedState = false;
+        controls.enabled = true;
+        return;
+    }
     if (isDraggingTileOffset) {
         if (dragMutatedState) recordHistorySnapshot();
         isDraggingTileOffset = false;
@@ -1981,6 +2518,13 @@ function onContextMenu(event) {
     if (fixtureHit) {
         event.preventDefault();
         const target = fixtureHit.object.userData?.isFixture ? fixtureHit.object : fixtureHit.object.parent;
+        const fixtureIdx = fixturesGroup.children.indexOf(target);
+        const fixtureType = target.userData?.type;
+        const catEntry = fixtureCatalog.find(c => c.key === fixtureType);
+        document.dispatchEvent(new CustomEvent('pmElementSelected', { detail: {
+            type: 'fixture', index: fixtureIdx,
+            fixtureType, label: catEntry?.label || fixtureType
+        }}));
         fixturesGroup.remove(target);
         ignoreNextClick = true;
         recordHistorySnapshot();
@@ -2089,6 +2633,92 @@ document.addEventListener('keydown', (event) => {
 renderWallTextureOptions();
 renderWallSwatches();
 renderTileSwatches();
+
+// ─── Catalog persistence (separate from autosave) ─────────────────────────────
+const CATALOG_KEY = 'pm69-floorplanner:catalog:v1';
+
+function loadCatalog() {
+    try {
+        const raw = window.localStorage?.getItem(CATALOG_KEY);
+        if (!raw) return;
+        const catalog = JSON.parse(raw);
+        if (Array.isArray(catalog.tiles)) {
+            catalog.tiles.forEach(item => {
+                if (!tilePatternList.some(t => t.key === item.key)) {
+                    tilePatternList.push(item);
+                    tileTextures[item.key] = loadImageTileTexture(item.url, 2);
+                }
+            });
+            renderTileSwatches();
+        }
+        if (Array.isArray(catalog.walls)) {
+            catalog.walls.forEach(item => {
+                if (!wallTextureList.some(w => w.key === item.key)) {
+                    wallTextureList.push(item);
+                    const mat = loadImageWallMaterial(item.url, item.repeatX ?? 2, item.repeatYPerMeter ?? 1, 0);
+                    mat.userData = { repeatX: item.repeatX ?? 2, repeatYPerMeter: item.repeatYPerMeter ?? 1 };
+                    wallMaterials[item.key] = mat;
+                }
+            });
+            renderWallTextureOptions();
+            renderWallSwatches();
+        }
+        if (Array.isArray(catalog.fixtures)) {
+            catalog.fixtures.forEach(item => {
+                if (!fixtureCatalog.some(f => f.key === item.key)) {
+                    fixtureCatalog.push(item);
+                }
+            });
+            renderFixtureSwatches();
+        }
+    } catch(e) {}
+}
+
+function saveCatalog() {
+    try {
+        const catalog = {
+            tiles: tilePatternList.filter(t => t.key.startsWith('custom_') && !t.key.startsWith('custom_wall_')),
+            walls: wallTextureList.filter(w => w.key.startsWith('custom_wall_')),
+            fixtures: fixtureCatalog.filter(f => f.key.startsWith('custom_fixture_'))
+        };
+        window.localStorage?.setItem(CATALOG_KEY, JSON.stringify(catalog));
+    } catch(e) {}
+}
+
+window.deleteCatalogItem = function(type, key) {
+    if (type === 'tile') {
+        const idx = tilePatternList.findIndex(t => t.key === key);
+        if (idx !== -1) tilePatternList.splice(idx, 1);
+        delete tileTextures[key];
+        renderTileSwatches();
+    } else if (type === 'wall') {
+        const idx = wallTextureList.findIndex(w => w.key === key);
+        if (idx !== -1) wallTextureList.splice(idx, 1);
+        delete wallMaterials[key];
+        renderWallSwatches();
+        renderWallTextureOptions();
+    } else if (type === 'fixture') {
+        const idx = fixtureCatalog.findIndex(f => f.key === key);
+        if (idx !== -1) fixtureCatalog.splice(idx, 1);
+        renderFixtureSwatches();
+    }
+    saveCatalog();
+};
+
+window.getCatalogCounts = function() {
+    return {
+        tiles: tilePatternList.filter(t => t.key.startsWith('custom_') && !t.key.startsWith('custom_wall_')).length,
+        walls: wallTextureList.filter(w => w.key.startsWith('custom_wall_')).length,
+        fixtures: fixtureCatalog.filter(f => f.key.startsWith('custom_fixture_')).length
+    };
+};
+
+loadCatalog();
+
+// Hot-reload catalog when changed from another tab (catalog page)
+window.addEventListener('storage', (e) => {
+    if (e.key === CATALOG_KEY) loadCatalog();
+});
 
 let loadedAutosave = false;
 try {
