@@ -2715,6 +2715,11 @@ window.getCatalogCounts = function() {
 
 loadCatalog();
 
+// Hot-reload catalog when changed from another tab (catalog page)
+window.addEventListener('storage', (e) => {
+    if (e.key === CATALOG_KEY) loadCatalog();
+});
+
 let loadedAutosave = false;
 try {
     const autosave = window.localStorage?.getItem('pm69-floorplanner:autosave:v1');

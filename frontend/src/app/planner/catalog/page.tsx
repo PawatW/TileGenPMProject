@@ -117,6 +117,19 @@ export default function CatalogPage() {
     if (!isLoading && !user) router.replace("/login");
   }, [user, isLoading, router]);
 
+  // Override body styles set by planner layout (overflow:hidden, height:100vh)
+  useEffect(() => {
+    const prev = { overflow: document.body.style.overflow, height: document.body.style.height, display: document.body.style.display };
+    document.body.style.overflow = "auto";
+    document.body.style.height = "auto";
+    document.body.style.display = "block";
+    return () => {
+      document.body.style.overflow = prev.overflow;
+      document.body.style.height = prev.height;
+      document.body.style.display = prev.display;
+    };
+  }, []);
+
   const reload = useCallback(() => setCatalog(readCatalog()), []);
   useEffect(() => { reload(); }, [reload]);
   useEffect(() => {
