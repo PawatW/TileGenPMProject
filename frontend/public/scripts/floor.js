@@ -57,6 +57,7 @@ let dragMutatedState = false;
 
 // Tile offset drag state
 let tileOffsets = {};             // { [patternKey]: { x, y } } — UV offset in tile units
+let tileGlobalTransforms = {};    // { [patternKey]: { rotation: 0|1|2|3, flip: bool } } — for large tiles >1 m
 let tileOffsetDragMode = false;   // โหมดลากขยับตำแหน่งกระเบื้อง
 let isDraggingTileOffset = false;
 let tileOffsetDragPattern = null;
@@ -271,6 +272,7 @@ function serializeDesignState() {
         customTiles: tilePatternList.filter(t => t.key.startsWith('custom_')),
         removedWalls: Array.from(removedWalls),
         tileOffsets,
+        tileGlobalTransforms,
         fixtures
     };
 }
@@ -320,6 +322,11 @@ function applyDesignState(state) {
         tileOffsets = { ...state.tileOffsets };
     } else {
         tileOffsets = {};
+    }
+    if (state.tileGlobalTransforms && typeof state.tileGlobalTransforms === 'object') {
+        tileGlobalTransforms = { ...state.tileGlobalTransforms };
+    } else {
+        tileGlobalTransforms = {};
     }
     tileBrush = state.tilePattern;
     wallBrush = state.wallPattern;
@@ -658,6 +665,7 @@ window.resetGrid = function() {
     floorTextureData = {};
     wallTextureData = {};
     tileOffsets = {};
+    tileGlobalTransforms = {};
     removedWalls.clear();
     placementMode = null;
     while (fixturesGroup.children.length > 0) {
@@ -1024,7 +1032,11 @@ function calculatePricingSummary() {
             const cellPattern = floorTextureData[`${x},${y}`] || tilePattern;
             totalAreaSqm += cellArea;
 
-            if (!patternData[cellPattern]) patternData[cellPattern] = { area: 0, tileSet: new Set() };
+            if (!patternData[cellPattern]) patternData[cellPattern] = {
+                area: 0,
+                uMin: Infinity, uMax: -Infinity,
+                vMin: Infinity, vMax: -Infinity
+            };
             patternData[cellPattern].area += cellArea;
 
             const meta = getTileMetaByKey(cellPattern);
@@ -1037,25 +1049,18 @@ function calculatePricingSummary() {
             const cx = x - offsetX - (1 - fracX) / 2;
             const cz = y - offsetZ - (1 - fracY) / 2;
 
-            // UV range ของ cell นี้ (ใช้สูตรเดียวกับ build3D)
-            // X: wx = cx ± fracX/2,  u = wx/safeW + tileOff.x
-            // Z: wz = cz ∓ ly (local y → world -z after rotation), wz range = cz ± fracY/2
+            // UV span ของ cell นี้ — span = roomSize/tileSize ไม่ขึ้นกับ tileOffset
+            // (tileOffset บวกทั้ง uMin และ uMax จึงหักล้างกันเมื่อคำนวณ span)
             const uMin = (cx - fracX / 2) / safeW + tileOff.x;
             const uMax = (cx + fracX / 2) / safeW + tileOff.x;
             const vMin = (cz - fracY / 2) / safeL + tileOff.y;
             const vMax = (cz + fracY / 2) / safeL + tileOff.y;
 
-            // Tile grid indices ที่ overlap กับ cell นี้
-            const tiX0 = Math.floor(uMin);
-            const tiX1 = Math.floor(uMax - 1e-9);
-            const tiZ0 = Math.floor(vMin);
-            const tiZ1 = Math.floor(vMax - 1e-9);
-
-            for (let ti = tiX0; ti <= tiX1; ti++) {
-                for (let tj = tiZ0; tj <= tiZ1; tj++) {
-                    patternData[cellPattern].tileSet.add(`${ti},${tj}`);
-                }
-            }
+            const pd = patternData[cellPattern];
+            if (uMin < pd.uMin) pd.uMin = uMin;
+            if (uMax > pd.uMax) pd.uMax = uMax;
+            if (vMin < pd.vMin) pd.vMin = vMin;
+            if (vMax > pd.vMax) pd.vMax = vMax;
         }
     }
 
@@ -1068,7 +1073,12 @@ function calculatePricingSummary() {
     const groups = Object.entries(patternData).map(([patternKey, data]) => {
         const meta = getTileMetaByKey(patternKey);
         const { widthM, lengthM } = getTileSizeInMeters(meta);
-        const rawTiles = data.tileSet.size; // นับ unique tile positions
+        // นับจำนวนแผ่นที่ต้องใช้โดยคำนวณจาก UV span ของห้องทั้งหมด
+        // ceil(uSpan) * ceil(vSpan) ถูกต้องสำหรับแผ่นซีมเลสทุกขนาด
+        // (uSpan = roomWidth/tileWidth ไม่ขึ้นกับ tileOffset เพราะ offset หักล้างกัน)
+        const uSpan = data.uMax - data.uMin;
+        const vSpan = data.vMax - data.vMin;
+        const rawTiles = Math.ceil(uSpan - 1e-9) * Math.ceil(vSpan - 1e-9);
         const tilesWithWaste = Math.ceil(rawTiles * 1.05);
         const tilesPerBox = Math.max(1, Math.ceil(Number(meta?.tilesPerBox) || 1));
         const pricePerBox = Math.max(0, Number(meta?.pricePerBox) || 0);
@@ -1452,6 +1462,10 @@ function build3D() {
             const cellUCx = cx / safeW + tileOff.x; // cell center in tile UV space (X)
             const cellUCz = cz / safeL + tileOff.y; // cell center in tile UV space (Z)
 
+            // Global transform for large tiles (>1 m) — applied uniformly on world-space UV
+            const isLargeTile = safeW > 1.0 + 1e-9 || safeL > 1.0 + 1e-9;
+            const gt = isLargeTile ? (tileGlobalTransforms[cellPattern] || { rotation: 0, flip: false }) : null;
+
             // Custom Plane Geometry for fractional edge cells
             const cGeometry = new THREE.PlaneGeometry(fracX, fracY);
 
@@ -1467,8 +1481,17 @@ function build3D() {
                     const wz = cz - ly;
                     let u = wx / safeW + tileOff.x;
                     let v = wz / safeL + tileOff.y;
-                    // Per-cell rotation/flip around the cell's UV centre
-                    if (cellRotRad !== 0 || doFlip) {
+                    if (isLargeTile) {
+                        // Global UV transform: rotate/flip the world-space UV axes uniformly
+                        // so all cells of the same large tile transform together seamlessly
+                        if (gt.flip) u = -u;
+                        switch (gt.rotation % 4) {
+                            case 1: { const t = u; u = v; v = -t; break; } // 90° CW
+                            case 2: { u = -u; v = -v; break; }              // 180°
+                            case 3: { const t = u; u = -v; v = t; break; }  // 270° CW
+                        }
+                    } else if (cellRotRad !== 0 || doFlip) {
+                        // Per-cell rotation/flip around the cell's UV centre (small tiles only)
                         let du = u - cellUCx;
                         let dv = v - cellUCz;
                         if (doFlip) du = -du;
@@ -1811,9 +1834,26 @@ window.fillAllWalls = function() {
 window.rotateAllTiles = function() {
     const cw = Math.ceil(gridWidth);
     const ch = Math.ceil(gridHeight);
-    for(let x=0; x<cw; x++) {
-        for(let y=0; y<ch; y++) {
-            if(gridData[x][y]) rotationData[x][y] = (rotationData[x][y] + 1) % 4;
+    const processedLargePatterns = new Set();
+    for (let x = 0; x < cw; x++) {
+        for (let y = 0; y < ch; y++) {
+            if (!gridData[x][y]) continue;
+            const cellPattern = floorTextureData[`${x},${y}`] || tilePattern;
+            const meta = getTileMetaByKey(cellPattern);
+            const { widthM, lengthM } = getTileSizeInMeters(meta);
+            const safeW = (widthM > 0 && Number.isFinite(widthM)) ? widthM : 0.6;
+            const safeL = (lengthM > 0 && Number.isFinite(lengthM)) ? lengthM : 0.6;
+            if (safeW > 1.0 + 1e-9 || safeL > 1.0 + 1e-9) {
+                // Large tile: rotate global UV transform once per pattern
+                if (!processedLargePatterns.has(cellPattern)) {
+                    processedLargePatterns.add(cellPattern);
+                    const gt = tileGlobalTransforms[cellPattern] || { rotation: 0, flip: false };
+                    tileGlobalTransforms[cellPattern] = { ...gt, rotation: (gt.rotation + 1) % 4 };
+                }
+            } else {
+                // Small tile: per-cell rotation
+                rotationData[x][y] = (rotationData[x][y] + 1) % 4;
+            }
         }
     }
     build3D();
@@ -1823,9 +1863,26 @@ window.rotateAllTiles = function() {
 window.flipAllTiles = function() {
     const cw = Math.ceil(gridWidth);
     const ch = Math.ceil(gridHeight);
-    for(let x=0; x<cw; x++) {
-        for(let y=0; y<ch; y++) {
-            if(gridData[x][y]) flipData[x][y] = flipData[x][y] ? 0 : 1;
+    const processedLargePatterns = new Set();
+    for (let x = 0; x < cw; x++) {
+        for (let y = 0; y < ch; y++) {
+            if (!gridData[x][y]) continue;
+            const cellPattern = floorTextureData[`${x},${y}`] || tilePattern;
+            const meta = getTileMetaByKey(cellPattern);
+            const { widthM, lengthM } = getTileSizeInMeters(meta);
+            const safeW = (widthM > 0 && Number.isFinite(widthM)) ? widthM : 0.6;
+            const safeL = (lengthM > 0 && Number.isFinite(lengthM)) ? lengthM : 0.6;
+            if (safeW > 1.0 + 1e-9 || safeL > 1.0 + 1e-9) {
+                // Large tile: flip global UV transform once per pattern
+                if (!processedLargePatterns.has(cellPattern)) {
+                    processedLargePatterns.add(cellPattern);
+                    const gt = tileGlobalTransforms[cellPattern] || { rotation: 0, flip: false };
+                    tileGlobalTransforms[cellPattern] = { ...gt, flip: !gt.flip };
+                }
+            } else {
+                // Small tile: per-cell flip
+                flipData[x][y] = flipData[x][y] ? 0 : 1;
+            }
         }
     }
     build3D();
