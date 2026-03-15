@@ -269,7 +269,9 @@ function serializeDesignState() {
         flipData,
         floorTextureData,
         wallTextureData,
-        customTiles: tilePatternList.filter(t => t.key.startsWith('custom_')),
+        customTiles: tilePatternList.filter(t => t.key.startsWith('custom_') && !t.key.startsWith('custom_wall_')),
+        customWalls: wallTextureList.filter(w => w.key.startsWith('custom_wall_')),
+        customFixtures: fixtureCatalog.filter(f => f.key.startsWith('custom_fixture_')),
         removedWalls: Array.from(removedWalls),
         tileOffsets,
         tileGlobalTransforms,
@@ -314,6 +316,28 @@ function applyDesignState(state) {
             }
         });
         renderTileSwatches();
+    }
+
+    if (Array.isArray(state.customWalls)) {
+        state.customWalls.forEach(entry => {
+            if (!wallTextureList.some(w => w.key === entry.key)) {
+                wallTextureList.push(entry);
+                const mat = loadImageWallMaterial(entry.url, entry.repeatX ?? 2, entry.repeatYPerMeter ?? 1, 0);
+                mat.userData = { repeatX: entry.repeatX ?? 2, repeatYPerMeter: entry.repeatYPerMeter ?? 1 };
+                wallMaterials[entry.key] = mat;
+            }
+        });
+        renderWallTextureOptions();
+        renderWallSwatches();
+    }
+
+    if (Array.isArray(state.customFixtures)) {
+        state.customFixtures.forEach(entry => {
+            if (!fixtureCatalog.some(f => f.key === entry.key)) {
+                fixtureCatalog.push(entry);
+            }
+        });
+        renderFixtureSwatches();
     }
 
     floorTextureData = state.floorTextureData || {};
@@ -850,8 +874,9 @@ function createFixtureMesh(type) {
     const { width, height, depth } = config;
     const slabDepth = Math.min(depth, wallThickness);
     const texture = fixtureTextures[type];
+    const isWindowStyle = type === 'window' || config.renderAs === 'window';
 
-    if (type === 'window') {
+    if (isWindowStyle) {
         const frameDepth = Math.max(0.04, slabDepth * 0.6);
         const frameMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.75 });
         const frame = new THREE.Mesh(new THREE.BoxGeometry(width + 0.08, height + 0.08, frameDepth), frameMat);
@@ -1857,10 +1882,16 @@ window.handleCustomTileUpload = function(e) {
     const wInput = document.getElementById('customTileW');
     const lInput = document.getElementById('customTileL');
     const uInput = document.getElementById('customTileUnit');
+    const nameInput = document.getElementById('customTileName');
+    const priceInput = document.getElementById('customTilePrice');
+    const perBoxInput = document.getElementById('customTilePerBox');
     const w = parseFloat(wInput?.value || '60');
     const l = parseFloat(lInput?.value || '60');
     const unit = uInput?.value || 'cm';
-    
+    const tileName = nameInput?.value?.trim() || '';
+    const price = parseFloat(priceInput?.value || '0') || 0;
+    const perBox = Math.max(1, parseInt(perBoxInput?.value || '4') || 4);
+
     const reader = new FileReader();
     reader.onload = (event) => {
         const img = new Image();
@@ -1882,10 +1913,10 @@ window.handleCustomTileUpload = function(e) {
                     height = MAX_SIZE;
                 }
             }
-            canvas.width = width;
-            canvas.height = height;
+            canvas.width = Math.round(width);
+            canvas.height = Math.round(height);
             const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, width, height);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
             const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
 
@@ -1893,12 +1924,14 @@ window.handleCustomTileUpload = function(e) {
             // Add to catalog
             tilePatternList.push({
                 key: customKey,
-                label: `ลายส่วนตัว (${w}x${l}${unit})`,
+                label: tileName || `กระเบื้อง ${w}×${l}${unit}`,
                 type: 'image',
                 url: dataUrl,
                 width: w,
                 length: l,
                 unit: unit,
+                pricePerBox: price,
+                tilesPerBox: perBox,
             });
 
             // Create Texture for THREE
@@ -1930,6 +1963,72 @@ function setWallTexture(patternKey) {
     }
     renderWallSwatches();
 }
+
+window.handleCustomWallUpload = function(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const nameInput = document.getElementById('customWallName');
+    const wallName = nameInput?.value?.trim() || '';
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const MAX_SIZE = 512;
+            let w = img.width, h = img.height;
+            if (w > MAX_SIZE) { h *= MAX_SIZE / w; w = MAX_SIZE; }
+            if (h > MAX_SIZE) { w *= MAX_SIZE / h; h = MAX_SIZE; }
+            canvas.width = Math.round(w); canvas.height = Math.round(h);
+            canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
+            const customKey = `custom_wall_${Date.now()}`;
+            const entry = { key: customKey, label: wallName || 'กำแพงส่วนตัว', type: 'image', url: dataUrl, repeatX: 2, repeatYPerMeter: 1 };
+            wallTextureList.push(entry);
+            const mat = loadImageWallMaterial(dataUrl, 2, 1, 0);
+            mat.userData = { repeatX: 2, repeatYPerMeter: 1 };
+            wallMaterials[customKey] = mat;
+
+            renderWallTextureOptions(customKey);
+            renderWallSwatches();
+            setWallTexture(customKey);
+            if (nameInput) nameInput.value = '';
+            e.target.value = '';
+        };
+        img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+};
+
+window.addCustomFixtureType = function() {
+    const nameInput = document.getElementById('customFixtureName');
+    const styleInput = document.getElementById('customFixtureStyle');
+    const wInput = document.getElementById('customFixtureW');
+    const hInput = document.getElementById('customFixtureH');
+
+    const name = nameInput?.value?.trim() || '';
+    if (!name) { alert('กรุณาระบุชื่อ'); return; }
+    const style = styleInput?.value || 'door';
+    const w = Math.max(0.3, parseFloat(wInput?.value || (style === 'window' ? '0.9' : '0.95')));
+    const h = Math.max(0.3, parseFloat(hInput?.value || (style === 'window' ? '0.8' : '2.0')));
+
+    const customKey = `custom_fixture_${Date.now()}`;
+    fixtureCatalog.push({
+        key: customKey,
+        label: name,
+        type: customKey,
+        renderAs: style,
+        width: w, height: h,
+        depth: style === 'window' ? 0.08 : 0.1,
+        preview: style === 'window'
+            ? { base: '#93c5fd', accent: '#e2e8f0' }
+            : { base: '#b08968', accent: '#fef9c3' }
+    });
+
+    if (nameInput) nameInput.value = '';
+    renderFixtureSwatches();
+};
 
 window.fillAllTiles = function() {
     tilePattern = tileBrush || tilePattern;

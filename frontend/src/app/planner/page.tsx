@@ -149,6 +149,15 @@ export default function PlannerPage() {
             </label>
           </div>
           <p className="hint">คลิกกำแพงที่มีอยู่ = ลบ | คลิกกำแพงโปร่งใส = เพิ่มคืน</p>
+          <div style={{ marginTop: "12px", padding: "12px", backgroundColor: "var(--bg-secondary)", borderRadius: "8px" }}
+            onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+            <span className="field-label" style={{ marginBottom: "8px", display: "block" }}>เพิ่มลายกำแพงใหม่</span>
+            <input type="text" id="customWallName" placeholder="ชื่อลาย เช่น หินอ่อนขาว" style={{ width: "100%", marginBottom: "6px", padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box" }} />
+            <input type="file" id="customWallFile" accept="image/*" style={{ display: "none" }} onChange={(e) => (window as any).handleCustomWallUpload?.(e)} />
+            <button className="draft-btn primary" style={{ width: "100%", justifyContent: "center" }} onClick={() => document.getElementById('customWallFile')?.click()}>
+              อัปโหลดรูปลาย
+            </button>
+          </div>
         </div>
 
         {/* Section: Tile */}
@@ -269,26 +278,34 @@ export default function PlannerPage() {
             เทลายนี้ทั้งห้อง (Fill Room)
           </button>
           
-          <div style={{ marginTop: "16px", padding: "12px", backgroundColor: "var(--bg-secondary)", borderRadius: "8px" }}>
-            <span className="field-label" style={{ marginBottom: "8px", display: "block" }}>เพิ่มลายกระเบื้องของคุณเอง</span>
-            <div 
-              style={{ display: "flex", gap: "8px", marginBottom: "8px", position: "relative", zIndex: 100 }}
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => e.stopPropagation()}
-            >
+          <div style={{ marginTop: "16px", padding: "12px", backgroundColor: "var(--bg-secondary)", borderRadius: "8px" }}
+            onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+            <span className="field-label" style={{ marginBottom: "8px", display: "block" }}>เพิ่มลายกระเบื้องใหม่</span>
+            <input type="text" id="customTileName" placeholder="ชื่อลาย เช่น โมเสคสีฟ้า" style={{ width: "100%", marginBottom: "6px", padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box" }} />
+            <div style={{ display: "flex", gap: "6px", marginBottom: "6px" }}>
               <input type="number" id="customTileW" defaultValue={60} min={1} style={{ flex: 1, minWidth: 0, padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)" }} placeholder="กว้าง" />
               <input type="number" id="customTileL" defaultValue={60} min={1} style={{ flex: 1, minWidth: 0, padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)" }} placeholder="ยาว" />
-              <select id="customTileUnit" style={{ padding: "4px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", width: "auto", flexShrink: 0 }}>
+              <select id="customTileUnit" style={{ padding: "4px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", flexShrink: 0 }}>
                 <option value="cm">cm</option>
                 <option value="inch">inch</option>
                 <option value="m">m</option>
               </select>
             </div>
+            <div style={{ display: "flex", gap: "6px", marginBottom: "8px" }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>ราคา/กล่อง (฿)</label>
+                <input type="number" id="customTilePrice" defaultValue={0} min={0} style={{ width: "100%", padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box" }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>แผ่น/กล่อง</label>
+                <input type="number" id="customTilePerBox" defaultValue={4} min={1} style={{ width: "100%", padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box" }} />
+              </div>
+            </div>
             <input type="file" id="customTileFile" accept="image/*" style={{ display: "none" }} onChange={(e) => (window as any).handleCustomTileUpload?.(e)} />
             <button className="draft-btn primary" style={{ width: "100%", justifyContent: "center" }} onClick={() => document.getElementById('customTileFile')?.click()}>
-              อัปโหลดรูปลายกระเบื้อง
+              อัปโหลดรูปลาย
             </button>
-            <span style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginTop: "8px", textAlign: "center" }}>*รูปจะถูกย่อไม่เกิน 512px อัตโนมัติ</span>
+            <span style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginTop: "6px", textAlign: "center" }}>รูปจะถูกย่อไม่เกิน 512px อัตโนมัติ</span>
           </div>
         </div>
 
@@ -300,27 +317,30 @@ export default function PlannerPage() {
           </div>
           <p className="hint">เลือกชนิดแล้วคลิก/ลากบนกำแพง | คลิกขวาที่ชิ้นงานเพื่อลบ</p>
           <div id="fixtureSwatches" className="swatch-grid"></div>
-        </div>
-
-        {/* Section: Element Management */}
-        <div className="panel-section">
-          <div className="section-header">
-            <span className="section-tag">05</span>
-            <h3 className="section-title">จัดการองค์ประกอบ</h3>
+          <div style={{ marginTop: "12px", padding: "12px", backgroundColor: "var(--bg-secondary)", borderRadius: "8px" }}
+            onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+            <span className="field-label" style={{ marginBottom: "8px", display: "block" }}>เพิ่มชนิดใหม่</span>
+            <input type="text" id="customFixtureName" placeholder="ชื่อ เช่น ประตูกระจกบาน" style={{ width: "100%", marginBottom: "6px", padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box" }} />
+            <div style={{ display: "flex", gap: "6px", marginBottom: "6px" }}>
+              <select id="customFixtureStyle" style={{ flex: 1, padding: "4px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)" }}>
+                <option value="door">ประตู</option>
+                <option value="window">หน้าต่าง</option>
+              </select>
+            </div>
+            <div style={{ display: "flex", gap: "6px", marginBottom: "8px" }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>กว้าง (ม.)</label>
+                <input type="number" id="customFixtureW" defaultValue={0.9} min={0.3} max={5} step={0.05} style={{ width: "100%", padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box" }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>สูง (ม.)</label>
+                <input type="number" id="customFixtureH" defaultValue={2.0} min={0.3} max={5} step={0.05} style={{ width: "100%", padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box" }} />
+              </div>
+            </div>
+            <button className="draft-btn primary" style={{ width: "100%", justifyContent: "center" }} onClick={() => (window as any).addCustomFixtureType?.()}>
+              เพิ่มชนิดนี้
+            </button>
           </div>
-          <p className="hint">คลิก element ใน 3D เพื่อดูรายละเอียด | จัดการทั้งหมดในหน้าแยก</p>
-          <a
-            href="/planner/elements"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-outline"
-            style={{ width: "100%", justifyContent: "center", display: "flex", marginTop: "8px", textDecoration: "none" }}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "6px" }}>
-              <path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2v-4M9 21H5a2 2 0 01-2-2v-4m0 0h18"/>
-            </svg>
-            หน้าจัดการองค์ประกอบ
-          </a>
         </div>
 
       </div>
