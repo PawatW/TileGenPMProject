@@ -1939,6 +1939,7 @@ window.handleCustomTileUpload = function(e) {
 
             // Select it explicitly
             setTilePattern(customKey);
+            saveCatalog();
 
             // Reset input
             e.target.value = '';
@@ -1993,6 +1994,7 @@ window.handleCustomWallUpload = function(e) {
             renderWallTextureOptions(customKey);
             renderWallSwatches();
             setWallTexture(customKey);
+            saveCatalog();
             if (nameInput) nameInput.value = '';
             e.target.value = '';
         };
@@ -2028,6 +2030,7 @@ window.addCustomFixtureType = function() {
 
     if (nameInput) nameInput.value = '';
     renderFixtureSwatches();
+    saveCatalog();
 };
 
 window.fillAllTiles = function() {
@@ -2630,6 +2633,87 @@ document.addEventListener('keydown', (event) => {
 renderWallTextureOptions();
 renderWallSwatches();
 renderTileSwatches();
+
+// ─── Catalog persistence (separate from autosave) ─────────────────────────────
+const CATALOG_KEY = 'pm69-floorplanner:catalog:v1';
+
+function loadCatalog() {
+    try {
+        const raw = window.localStorage?.getItem(CATALOG_KEY);
+        if (!raw) return;
+        const catalog = JSON.parse(raw);
+        if (Array.isArray(catalog.tiles)) {
+            catalog.tiles.forEach(item => {
+                if (!tilePatternList.some(t => t.key === item.key)) {
+                    tilePatternList.push(item);
+                    tileTextures[item.key] = loadImageTileTexture(item.url, 2);
+                }
+            });
+            renderTileSwatches();
+        }
+        if (Array.isArray(catalog.walls)) {
+            catalog.walls.forEach(item => {
+                if (!wallTextureList.some(w => w.key === item.key)) {
+                    wallTextureList.push(item);
+                    const mat = loadImageWallMaterial(item.url, item.repeatX ?? 2, item.repeatYPerMeter ?? 1, 0);
+                    mat.userData = { repeatX: item.repeatX ?? 2, repeatYPerMeter: item.repeatYPerMeter ?? 1 };
+                    wallMaterials[item.key] = mat;
+                }
+            });
+            renderWallTextureOptions();
+            renderWallSwatches();
+        }
+        if (Array.isArray(catalog.fixtures)) {
+            catalog.fixtures.forEach(item => {
+                if (!fixtureCatalog.some(f => f.key === item.key)) {
+                    fixtureCatalog.push(item);
+                }
+            });
+            renderFixtureSwatches();
+        }
+    } catch(e) {}
+}
+
+function saveCatalog() {
+    try {
+        const catalog = {
+            tiles: tilePatternList.filter(t => t.key.startsWith('custom_') && !t.key.startsWith('custom_wall_')),
+            walls: wallTextureList.filter(w => w.key.startsWith('custom_wall_')),
+            fixtures: fixtureCatalog.filter(f => f.key.startsWith('custom_fixture_'))
+        };
+        window.localStorage?.setItem(CATALOG_KEY, JSON.stringify(catalog));
+    } catch(e) {}
+}
+
+window.deleteCatalogItem = function(type, key) {
+    if (type === 'tile') {
+        const idx = tilePatternList.findIndex(t => t.key === key);
+        if (idx !== -1) tilePatternList.splice(idx, 1);
+        delete tileTextures[key];
+        renderTileSwatches();
+    } else if (type === 'wall') {
+        const idx = wallTextureList.findIndex(w => w.key === key);
+        if (idx !== -1) wallTextureList.splice(idx, 1);
+        delete wallMaterials[key];
+        renderWallSwatches();
+        renderWallTextureOptions();
+    } else if (type === 'fixture') {
+        const idx = fixtureCatalog.findIndex(f => f.key === key);
+        if (idx !== -1) fixtureCatalog.splice(idx, 1);
+        renderFixtureSwatches();
+    }
+    saveCatalog();
+};
+
+window.getCatalogCounts = function() {
+    return {
+        tiles: tilePatternList.filter(t => t.key.startsWith('custom_') && !t.key.startsWith('custom_wall_')).length,
+        walls: wallTextureList.filter(w => w.key.startsWith('custom_wall_')).length,
+        fixtures: fixtureCatalog.filter(f => f.key.startsWith('custom_fixture_')).length
+    };
+};
+
+loadCatalog();
 
 let loadedAutosave = false;
 try {
