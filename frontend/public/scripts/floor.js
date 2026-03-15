@@ -1018,10 +1018,13 @@ function calculatePricingSummary() {
     const offsetX = (gridWidth * 1) / 2 - 0.5;
     const offsetZ = (gridHeight * 1) / 2 - 0.5;
 
-    // ────────────────────────────────────────────────────────
-    // Pass 1: หา UV min ของห้องต่อ pattern (ใช้ normalize)
-    // ────────────────────────────────────────────────────────
-    const patternMeta = {};   // { [pat]: { safeW, safeL, tileOff, uMinRoom, vMinRoom, area, cells[] } }
+    // นับ unique tile grid positions ต่อ pattern โดยใช้ UV จริง (รวม tileOffset)
+    // — เฉพาะ cell ที่มีกระเบื้อง (รองรับห้องรูป L)
+    // — ตำแหน่ง grid เป็น absolute: เมื่อ offset ทำให้ขอบกระเบื้องตัดผ่านห้อง
+    //   จำนวน unique position จะเพิ่ม → สะท้อนแผ่นที่ต้องใช้จริง
+    // — เมื่อผู้ใช้ปรับ offset ให้กระเบื้องพอดีห้อง (ขอบตรงกับขอบห้อง)
+    //   ทุก cell จะ map ไป grid position เดียวกัน → นับได้ถูกต้อง
+    const patternData = {};
     let totalAreaSqm = 0;
 
     for (let x = 0; x < cw; x++) {
@@ -1033,58 +1036,42 @@ function calculatePricingSummary() {
             const cellPattern = floorTextureData[`${x},${y}`] || tilePattern;
             totalAreaSqm += cellArea;
 
-            if (!patternMeta[cellPattern]) {
+            if (!patternData[cellPattern]) {
                 const meta = getTileMetaByKey(cellPattern);
                 const { widthM: tW, lengthM: tL } = getTileSizeInMeters(meta);
-                patternMeta[cellPattern] = {
+                patternData[cellPattern] = {
                     meta,
                     safeW: (tW > 0 && Number.isFinite(tW)) ? tW : 0.6,
                     safeL: (tL > 0 && Number.isFinite(tL)) ? tL : 0.6,
                     tileOff: tileOffsets[cellPattern] || { x: 0, y: 0 },
-                    uMinRoom: Infinity, vMinRoom: Infinity,
                     area: 0,
-                    cells: []
+                    tileSet: new Set()
                 };
             }
-            const pd = patternMeta[cellPattern];
+            const pd = patternData[cellPattern];
             pd.area += cellArea;
 
+            // World-space center ของ cell (เหมือน build3D)
             const cx = x - offsetX - (1 - fracX) / 2;
             const cz = y - offsetZ - (1 - fracY) / 2;
 
-            // UV ขอบ cell (สูตรเดียวกับ build3D)
+            // UV ขอบ cell พร้อม tileOffset (สูตรเดียวกับ build3D)
             const uMin = (cx - fracX / 2) / pd.safeW + pd.tileOff.x;
             const uMax = (cx + fracX / 2) / pd.safeW + pd.tileOff.x;
             const vMin = (cz - fracY / 2) / pd.safeL + pd.tileOff.y;
             const vMax = (cz + fracY / 2) / pd.safeL + pd.tileOff.y;
 
-            if (uMin < pd.uMinRoom) pd.uMinRoom = uMin;
-            if (vMin < pd.vMinRoom) pd.vMinRoom = vMin;
-            pd.cells.push({ uMin, uMax, vMin, vMax });
-        }
-    }
-
-    // ────────────────────────────────────────────────────────
-    // Pass 2: นับ unique tile positions แบบ normalized ต่อ cell ที่มีจริง
-    // Normalize โดย UV min ของห้อง → tile แรกเสมอเริ่มที่ index 0
-    // ทำให้ tileOffset ไม่กระทบจำนวนแผ่น (เลื่อนทั้งหมดไปด้วยกัน)
-    // และนับเฉพาะ cell ที่มีกระเบื้องจริง (รองรับห้องรูป L)
-    // ────────────────────────────────────────────────────────
-    const patternData = {};
-    for (const [cellPattern, pd] of Object.entries(patternMeta)) {
-        const tileSet = new Set();
-        for (const { uMin, uMax, vMin, vMax } of pd.cells) {
-            const tiX0 = Math.floor(uMin - pd.uMinRoom);
-            const tiX1 = Math.floor(uMax - pd.uMinRoom - 1e-9);
-            const tiZ0 = Math.floor(vMin - pd.vMinRoom);
-            const tiZ1 = Math.floor(vMax - pd.vMinRoom - 1e-9);
+            // Tile grid indices ที่ cell นี้ครอบ (absolute — ตอบสนองต่อ offset)
+            const tiX0 = Math.floor(uMin);
+            const tiX1 = Math.floor(uMax - 1e-9);
+            const tiZ0 = Math.floor(vMin);
+            const tiZ1 = Math.floor(vMax - 1e-9);
             for (let ti = tiX0; ti <= tiX1; ti++) {
                 for (let tj = tiZ0; tj <= tiZ1; tj++) {
-                    tileSet.add(`${ti},${tj}`);
+                    pd.tileSet.add(`${ti},${tj}`);
                 }
             }
         }
-        patternData[cellPattern] = { area: pd.area, meta: pd.meta, rawTiles: tileSet.size };
     }
 
     // คำนวณแต่ละกลุ่มลาย
@@ -1095,7 +1082,7 @@ function calculatePricingSummary() {
 
     const groups = Object.entries(patternData).map(([patternKey, data]) => {
         const meta = data.meta;
-        const rawTiles = data.rawTiles;
+        const rawTiles = data.tileSet.size;
         const tilesWithWaste = rawTiles;
         const tilesPerBox = Math.max(1, Math.ceil(Number(meta?.tilesPerBox) || 1));
         const pricePerBox = Math.max(0, Number(meta?.pricePerBox) || 0);
