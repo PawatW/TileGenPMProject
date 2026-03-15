@@ -1018,10 +1018,13 @@ function calculatePricingSummary() {
     const offsetX = (gridWidth * 1) / 2 - 0.5;
     const offsetZ = (gridHeight * 1) / 2 - 0.5;
 
-    // ────────────────────────────────────────────────────────
-    // Pass 1: หา UV min ของห้องต่อ pattern (ใช้ normalize)
-    // ────────────────────────────────────────────────────────
-    const patternMeta = {};   // { [pat]: { safeW, safeL, tileOff, uMinRoom, vMinRoom, area, cells[] } }
+    // Hybrid approach:
+    // — แผ่นใหญ่ (>1 m): normalized tileSet → นับ "instance" ของแผ่นจริงที่วางบนพื้น
+    //   ไม่ขึ้นกับ world-UV origin → ห้อง 3×3 + แผ่น 3×3 = 1 เสมอ
+    //   เมื่อแผ่นเล็กแทรกเข้าบาง cell แต่ยังมี cell ของแผ่นใหญ่เหลืออยู่ → ยังนับ 1
+    //   เมื่อแผ่นเล็ก cover ทุก cell ของ instance นั้น → ไม่นับแผ่นใหญ่ instance นั้น
+    // — แผ่นเล็ก (≤1 m): absolute tileSet → ตอบสนอง tileOffset ที่ผู้ใช้ลาก
+    const patternData = {};
     let totalAreaSqm = 0;
 
     for (let x = 0; x < cw; x++) {
@@ -1033,46 +1036,64 @@ function calculatePricingSummary() {
             const cellPattern = floorTextureData[`${x},${y}`] || tilePattern;
             totalAreaSqm += cellArea;
 
-            if (!patternMeta[cellPattern]) {
+            if (!patternData[cellPattern]) {
                 const meta = getTileMetaByKey(cellPattern);
                 const { widthM: tW, lengthM: tL } = getTileSizeInMeters(meta);
-                patternMeta[cellPattern] = {
+                const safeW = (tW > 0 && Number.isFinite(tW)) ? tW : 0.6;
+                const safeL = (tL > 0 && Number.isFinite(tL)) ? tL : 0.6;
+                patternData[cellPattern] = {
                     meta,
-                    safeW: (tW > 0 && Number.isFinite(tW)) ? tW : 0.6,
-                    safeL: (tL > 0 && Number.isFinite(tL)) ? tL : 0.6,
+                    safeW, safeL,
+                    isLarge: safeW > 1.0 + 1e-9 || safeL > 1.0 + 1e-9,
                     tileOff: tileOffsets[cellPattern] || { x: 0, y: 0 },
-                    uMinRoom: Infinity, vMinRoom: Infinity,
                     area: 0,
+                    tileSet: new Set(),
+                    // ใช้สำหรับ normalize แผ่นใหญ่เท่านั้น
+                    uMinRoom: Infinity, vMinRoom: Infinity,
                     cells: []
                 };
             }
-            const pd = patternMeta[cellPattern];
+            const pd = patternData[cellPattern];
             pd.area += cellArea;
 
+            // World-space center ของ cell (เหมือน build3D)
             const cx = x - offsetX - (1 - fracX) / 2;
             const cz = y - offsetZ - (1 - fracY) / 2;
 
-            // UV ขอบ cell (สูตรเดียวกับ build3D)
+            // UV ขอบ cell พร้อม tileOffset (สูตรเดียวกับ build3D)
             const uMin = (cx - fracX / 2) / pd.safeW + pd.tileOff.x;
             const uMax = (cx + fracX / 2) / pd.safeW + pd.tileOff.x;
             const vMin = (cz - fracY / 2) / pd.safeL + pd.tileOff.y;
             const vMax = (cz + fracY / 2) / pd.safeL + pd.tileOff.y;
 
-            if (uMin < pd.uMinRoom) pd.uMinRoom = uMin;
-            if (vMin < pd.vMinRoom) pd.vMinRoom = vMin;
-            pd.cells.push({ uMin, uMax, vMin, vMax });
+            if (pd.isLarge) {
+                // แผ่นใหญ่: เก็บ UV ของแต่ละ cell ไว้ normalize ใน pass 2
+                if (uMin < pd.uMinRoom) pd.uMinRoom = uMin;
+                if (vMin < pd.vMinRoom) pd.vMinRoom = vMin;
+                pd.cells.push({ uMin, uMax, vMin, vMax });
+            } else {
+                // แผ่นเล็ก: absolute grid positions (ตอบสนอง offset)
+                const tiX0 = Math.floor(uMin);
+                const tiX1 = Math.floor(uMax - 1e-9);
+                const tiZ0 = Math.floor(vMin);
+                const tiZ1 = Math.floor(vMax - 1e-9);
+                for (let ti = tiX0; ti <= tiX1; ti++) {
+                    for (let tj = tiZ0; tj <= tiZ1; tj++) {
+                        pd.tileSet.add(`${ti},${tj}`);
+                    }
+                }
+            }
         }
     }
 
-    // ────────────────────────────────────────────────────────
-    // Pass 2: นับ unique tile positions แบบ normalized ต่อ cell ที่มีจริง
-    // Normalize โดย UV min ของห้อง → tile แรกเสมอเริ่มที่ index 0
-    // ทำให้ tileOffset ไม่กระทบจำนวนแผ่น (เลื่อนทั้งหมดไปด้วยกัน)
-    // และนับเฉพาะ cell ที่มีกระเบื้องจริง (รองรับห้องรูป L)
-    // ────────────────────────────────────────────────────────
-    const patternData = {};
-    for (const [cellPattern, pd] of Object.entries(patternMeta)) {
-        const tileSet = new Set();
+    // Pass 2: normalized tileSet สำหรับแผ่นใหญ่
+    // UV min ของ cell แรก (uMinRoom) ใช้เป็น origin → tile แรกของห้องเสมออยู่ที่ index 0
+    // ทำให้ world-UV origin ไม่ส่งผลต่อจำนวนแผ่น
+    // แผ่นเล็กที่แทรกเข้าใน cell ของแผ่นใหญ่: เนื่องจาก cell นั้นไม่ถูกเพิ่มใน pd.cells
+    // ถ้า cell อื่นของแผ่นใหญ่ยังครอบ grid instance เดิมอยู่ → ยังนับแผ่นใหญ่
+    // ถ้าแผ่นเล็ก cover ทุก cell ของ instance → pd.cells ว่าง/ไม่ครอบ instance → ไม่นับ
+    for (const pd of Object.values(patternData)) {
+        if (!pd.isLarge) continue;
         for (const { uMin, uMax, vMin, vMax } of pd.cells) {
             const tiX0 = Math.floor(uMin - pd.uMinRoom);
             const tiX1 = Math.floor(uMax - pd.uMinRoom - 1e-9);
@@ -1080,11 +1101,10 @@ function calculatePricingSummary() {
             const tiZ1 = Math.floor(vMax - pd.vMinRoom - 1e-9);
             for (let ti = tiX0; ti <= tiX1; ti++) {
                 for (let tj = tiZ0; tj <= tiZ1; tj++) {
-                    tileSet.add(`${ti},${tj}`);
+                    pd.tileSet.add(`${ti},${tj}`);
                 }
             }
         }
-        patternData[cellPattern] = { area: pd.area, meta: pd.meta, rawTiles: tileSet.size };
     }
 
     // คำนวณแต่ละกลุ่มลาย
@@ -1095,7 +1115,7 @@ function calculatePricingSummary() {
 
     const groups = Object.entries(patternData).map(([patternKey, data]) => {
         const meta = data.meta;
-        const rawTiles = data.rawTiles;
+        const rawTiles = data.tileSet.size;
         const tilesWithWaste = rawTiles;
         const tilesPerBox = Math.max(1, Math.ceil(Number(meta?.tilesPerBox) || 1));
         const pricePerBox = Math.max(0, Number(meta?.pricePerBox) || 0);
