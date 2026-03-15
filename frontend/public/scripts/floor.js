@@ -1741,6 +1741,115 @@ window.resetTileOffset = function() {
     }
 }
 
+// ─── Element Management API ───────────────────────────────────────────────────
+window.getDesignElements = function() {
+    const cw = Math.ceil(gridWidth);
+    const ch = Math.ceil(gridHeight);
+
+    // Tiles: one entry per filled cell
+    const tiles = [];
+    for (let x = 0; x < cw; x++) {
+        for (let y = 0; y < ch; y++) {
+            if (!gridData[x][y]) continue;
+            const patternKey = floorTextureData[`${x},${y}`] || tilePattern;
+            const meta = getTileMetaByKey(patternKey);
+            const { widthM, lengthM } = getTileSizeInMeters(meta);
+            tiles.push({
+                x, y,
+                patternKey,
+                label: meta?.label || patternKey,
+                rotation: rotationData[x]?.[y] || 0,
+                flip: !!(flipData[x]?.[y]),
+                widthM: widthM || 0.6,
+                lengthM: lengthM || 0.6
+            });
+        }
+    }
+
+    // Walls: only boundary walls (interior shared edges excluded)
+    const walls = [];
+    const sides = ['top', 'bottom', 'left', 'right'];
+    for (let x = 0; x < cw; x++) {
+        for (let y = 0; y < ch; y++) {
+            if (!gridData[x][y]) continue;
+            for (const side of sides) {
+                let isBoundary = false;
+                if (side === 'top'    && (y === 0    || !gridData[x]?.[y-1])) isBoundary = true;
+                if (side === 'bottom' && (y === ch-1 || !gridData[x]?.[y+1])) isBoundary = true;
+                if (side === 'left'   && (x === 0    || !gridData[x-1]?.[y])) isBoundary = true;
+                if (side === 'right'  && (x === cw-1 || !gridData[x+1]?.[y])) isBoundary = true;
+                if (!isBoundary) continue;
+                const wallKey = `${x},${y},${side}`;
+                const patternKey = wallTextureData[wallKey] || wallPattern;
+                const meta = wallTextureList.find(w => w.key === patternKey);
+                walls.push({
+                    wallKey, x, y, side,
+                    patternKey,
+                    label: meta?.label || patternKey,
+                    removed: removedWalls.has(wallKey)
+                });
+            }
+        }
+    }
+
+    // Fixtures
+    const fixtures = fixturesGroup.children.map((f, idx) => {
+        const data = f.userData || {};
+        const catEntry = fixtureCatalog.find(c => c.key === data.type);
+        return {
+            index: idx,
+            type: data.type || 'unknown',
+            label: catEntry?.label || data.type || 'Unknown',
+            attachedWallKey: data.attachedWallKey || null,
+            position: { x: f.position.x, y: f.position.y, z: f.position.z },
+            rotationY: f.rotation.y
+        };
+    });
+
+    return { tiles, walls, fixtures, gridWidth, gridHeight, wallHeight: Number(wallHeight) };
+};
+
+window.deleteFixtureByIndex = function(idx) {
+    const children = [...fixturesGroup.children];
+    if (idx >= 0 && idx < children.length) {
+        fixturesGroup.remove(children[idx]);
+        recordHistorySnapshot();
+        build3D();
+    }
+};
+
+window.setTileCellRotation = function(x, y, rot) {
+    if (rotationData[x]?.[y] !== undefined) {
+        rotationData[x][y] = ((rot % 4) + 4) % 4;
+        build3D();
+        recordHistorySnapshot();
+    }
+};
+
+window.setTileCellFlip = function(x, y, flip) {
+    if (flipData[x]?.[y] !== undefined) {
+        flipData[x][y] = flip ? 1 : 0;
+        build3D();
+        recordHistorySnapshot();
+    }
+};
+
+window.removeWallByKey = function(key) {
+    removedWalls.add(key);
+    wallLayoutMode = WALL_LAYOUT_CUSTOM;
+    syncWallLayoutControls();
+    build3D();
+    recordHistorySnapshot();
+};
+
+window.restoreWallByKey = function(key) {
+    removedWalls.delete(key);
+    wallLayoutMode = WALL_LAYOUT_CUSTOM;
+    syncWallLayoutControls();
+    build3D();
+    recordHistorySnapshot();
+};
+
 window.handleCustomTileUpload = function(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -2133,7 +2242,14 @@ function onCanvasClick(event) {
             clearHoverHighlight();
             build3D();
             recordHistorySnapshot();
-        } 
+            // Dispatch selection event for inspector panel
+            document.dispatchEvent(new CustomEvent('pmElementSelected', { detail: {
+                type: 'tile', x: clickedGx, y: clickedGy,
+                patternKey: floorTextureData[`${clickedGx},${clickedGy}`] || tilePattern,
+                rotation: rotationData[clickedGx][clickedGy] || 0,
+                flip: !!(flipData[clickedGx][clickedGy])
+            }}));
+        }
         // ถ้าคลิก ghost wall (กำแพงที่ถูกลบ) → คืนกลับมา
         else if (data.isGhostWall) {
             removedWalls.delete(data.wallKey);
@@ -2141,6 +2257,10 @@ function onCanvasClick(event) {
             syncWallLayoutControls();
             build3D();
             recordHistorySnapshot();
+            document.dispatchEvent(new CustomEvent('pmElementSelected', { detail: {
+                type: 'wall', wallKey: data.wallKey, x: data.x, y: data.y, side: data.side,
+                patternKey: wallTextureData[data.wallKey] || wallPattern, removed: false
+            }}));
         }
         // ถ้าคลิกกำแพงจริง
         else if (data.isWall) {
@@ -2155,6 +2275,11 @@ function onCanvasClick(event) {
             }
             build3D();
             recordHistorySnapshot();
+            document.dispatchEvent(new CustomEvent('pmElementSelected', { detail: {
+                type: 'wall', wallKey, x: data.x, y: data.y, side: data.side,
+                patternKey: wallTextureData[wallKey] || wallPattern,
+                removed: removedWalls.has(wallKey)
+            }}));
         }
     }
 }
@@ -2291,6 +2416,13 @@ function onContextMenu(event) {
     if (fixtureHit) {
         event.preventDefault();
         const target = fixtureHit.object.userData?.isFixture ? fixtureHit.object : fixtureHit.object.parent;
+        const fixtureIdx = fixturesGroup.children.indexOf(target);
+        const fixtureType = target.userData?.type;
+        const catEntry = fixtureCatalog.find(c => c.key === fixtureType);
+        document.dispatchEvent(new CustomEvent('pmElementSelected', { detail: {
+            type: 'fixture', index: fixtureIdx,
+            fixtureType, label: catEntry?.label || fixtureType
+        }}));
         fixturesGroup.remove(target);
         ignoreNextClick = true;
         recordHistorySnapshot();

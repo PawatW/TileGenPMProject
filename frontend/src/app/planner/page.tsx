@@ -4,12 +4,22 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 
+type SelectedEl =
+  | { type: "tile"; x: number; y: number; patternKey: string; rotation: number; flip: boolean }
+  | { type: "wall"; wallKey: string; x: number; y: number; side: string; patternKey: string; removed: boolean }
+  | { type: "fixture"; index: number; fixtureType: string; label: string }
+  | null;
+
+const SIDE_LABELS: Record<string, string> = { top: "บน", bottom: "ล่าง", left: "ซ้าย", right: "ขวา" };
+const ROT_LABELS = ["0°", "90°", "180°", "270°"];
+
 export default function PlannerPage() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
   const [paintMode, setPaintMode] = useState<"cell" | "footprint">("footprint");
   const [dragPaint, setDragPaint] = useState(false);
   const [cellSelect, setCellSelect] = useState(false);
+  const [selectedEl, setSelectedEl] = useState<SelectedEl>(null);
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -29,6 +39,20 @@ export default function PlannerPage() {
       }
     };
   }, [user]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as SelectedEl;
+      setSelectedEl(detail);
+    };
+    document.addEventListener("pmElementSelected", handler);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setSelectedEl(null); };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pmElementSelected", handler);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, []);
 
   if (isLoading || !user) return null;
 
@@ -278,6 +302,27 @@ export default function PlannerPage() {
           <div id="fixtureSwatches" className="swatch-grid"></div>
         </div>
 
+        {/* Section: Element Management */}
+        <div className="panel-section">
+          <div className="section-header">
+            <span className="section-tag">05</span>
+            <h3 className="section-title">จัดการองค์ประกอบ</h3>
+          </div>
+          <p className="hint">คลิก element ใน 3D เพื่อดูรายละเอียด | จัดการทั้งหมดในหน้าแยก</p>
+          <a
+            href="/planner/elements"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-outline"
+            style={{ width: "100%", justifyContent: "center", display: "flex", marginTop: "8px", textDecoration: "none" }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "6px" }}>
+              <path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2v-4M9 21H5a2 2 0 01-2-2v-4m0 0h18"/>
+            </svg>
+            หน้าจัดการองค์ประกอบ
+          </a>
+        </div>
+
       </div>
 
       {/* ═══════════════════════════════════════ MIDDLE (3D VIEWER) ═══════════════════════════════ */}
@@ -314,6 +359,99 @@ export default function PlannerPage() {
           </svg>
           คลิกซ้าย: หมุนกระเบื้อง &nbsp;|&nbsp; ลากบนกำแพง: วางหน้าต่าง/ประตู &nbsp;|&nbsp; คลิกขวา: หมุนกล้อง
         </div>
+
+        {/* Element Inspector Panel */}
+        {selectedEl && (
+          <div style={{
+            position: "absolute", bottom: "16px", left: "16px",
+            background: "var(--surface-1, #1e1e2e)", border: "1px solid var(--border, #333)",
+            borderRadius: "10px", padding: "14px 16px", minWidth: "220px", maxWidth: "280px",
+            boxShadow: "0 4px 20px rgba(0,0,0,0.4)", zIndex: 50, color: "var(--text, #e0e0e0)", fontSize: "13px"
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+              <span style={{ fontWeight: 600, fontSize: "13px" }}>
+                {selectedEl.type === "tile" && "กระเบื้อง"}
+                {selectedEl.type === "wall" && "กำแพง"}
+                {selectedEl.type === "fixture" && "หน้าต่าง/ประตู"}
+              </span>
+              <button onClick={() => setSelectedEl(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted, #888)", fontSize: "16px", lineHeight: 1, padding: "0 2px" }}>✕</button>
+            </div>
+
+            {selectedEl.type === "tile" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--text-muted, #888)" }}>ตำแหน่ง</span>
+                  <span>({selectedEl.x}, {selectedEl.y})</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--text-muted, #888)" }}>ลาย</span>
+                  <span style={{ textAlign: "right", maxWidth: "140px", wordBreak: "break-word" }}>{selectedEl.patternKey}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--text-muted, #888)" }}>หมุน</span>
+                  <span>{ROT_LABELS[selectedEl.rotation] || "0°"}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--text-muted, #888)" }}>กระจก</span>
+                  <span>{selectedEl.flip ? "เปิด" : "ปิด"}</span>
+                </div>
+                <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>
+                  <button className="btn-outline" style={{ flex: 1, justifyContent: "center", fontSize: "11px", padding: "4px" }}
+                    onClick={() => { (window as any).setTileCellRotation?.(selectedEl.x, selectedEl.y, (selectedEl.rotation + 1) % 4); setSelectedEl({ ...selectedEl, rotation: (selectedEl.rotation + 1) % 4 }); }}>
+                    หมุน +90°
+                  </button>
+                  <button className="btn-outline" style={{ flex: 1, justifyContent: "center", fontSize: "11px", padding: "4px" }}
+                    onClick={() => { (window as any).setTileCellFlip?.(selectedEl.x, selectedEl.y, !selectedEl.flip); setSelectedEl({ ...selectedEl, flip: !selectedEl.flip }); }}>
+                    {selectedEl.flip ? "ยกเลิกกระจก" : "กระจก"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {selectedEl.type === "wall" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--text-muted, #888)" }}>ตำแหน่ง</span>
+                  <span>({selectedEl.x}, {selectedEl.y}) ด้าน{SIDE_LABELS[selectedEl.side] || selectedEl.side}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--text-muted, #888)" }}>ลาย</span>
+                  <span style={{ textAlign: "right", maxWidth: "140px", wordBreak: "break-word" }}>{selectedEl.patternKey}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--text-muted, #888)" }}>สถานะ</span>
+                  <span style={{ color: selectedEl.removed ? "#f87171" : "#4ade80" }}>{selectedEl.removed ? "ลบแล้ว" : "ปกติ"}</span>
+                </div>
+                <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>
+                  {!selectedEl.removed ? (
+                    <button className="btn-outline" style={{ flex: 1, justifyContent: "center", fontSize: "11px", padding: "4px", borderColor: "#f87171", color: "#f87171" }}
+                      onClick={() => { (window as any).removeWallByKey?.(selectedEl.wallKey); setSelectedEl({ ...selectedEl, removed: true }); }}>
+                      ลบกำแพง
+                    </button>
+                  ) : (
+                    <button className="btn-outline" style={{ flex: 1, justifyContent: "center", fontSize: "11px", padding: "4px", borderColor: "#4ade80", color: "#4ade80" }}
+                      onClick={() => { (window as any).restoreWallByKey?.(selectedEl.wallKey); setSelectedEl({ ...selectedEl, removed: false }); }}>
+                      คืนกำแพง
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {selectedEl.type === "fixture" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--text-muted, #888)" }}>ชนิด</span>
+                  <span>{selectedEl.label}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "var(--text-muted, #888)" }}>หมายเหตุ</span>
+                  <span style={{ color: "#f87171" }}>ถูกลบแล้ว (คลิกขวา)</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
       </div>
 
