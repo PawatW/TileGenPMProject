@@ -1079,7 +1079,7 @@ function calculatePricingSummary() {
         const uSpan = data.uMax - data.uMin;
         const vSpan = data.vMax - data.vMin;
         const rawTiles = Math.ceil(uSpan - 1e-9) * Math.ceil(vSpan - 1e-9);
-        const tilesWithWaste = Math.ceil(rawTiles * 1.05);
+        const tilesWithWaste = rawTiles;
         const tilesPerBox = Math.max(1, Math.ceil(Number(meta?.tilesPerBox) || 1));
         const pricePerBox = Math.max(0, Number(meta?.pricePerBox) || 0);
         const boxes = tilesWithWaste > 0 ? Math.ceil(tilesWithWaste / tilesPerBox) : 0;
