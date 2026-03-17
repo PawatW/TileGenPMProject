@@ -182,7 +182,7 @@ def image_normalize():
 
 @app.post("/api/image-edit")
 def image_edit():
-    api_key = "sk-or-v1-"
+    api_key = os.getenv("OPENROUTER_API_KEY", "")
     if not api_key:
         return jsonify({"error": "Missing OPENROUTER_API_KEY on server"}), 500
 
