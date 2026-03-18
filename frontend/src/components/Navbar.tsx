@@ -7,7 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 const NAV_LINKS = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/planner", label: "Floor Planner" },
-  { href: "/catalog", label: "คลัง Tile" },
+  { href: "/planner/catalog", label: "คลัง Tile" },
   { href: "/calculator", label: "คำนวณกระเบื้อง" },
 ];
 
@@ -42,13 +42,16 @@ export default function Navbar() {
         {/* Nav links */}
         <div className="navbar-links">
           {NAV_LINKS.map((link) => {
+            const isActive = link.href === "/planner"
+              ? pathname === "/planner"
+              : pathname.startsWith(link.href);
             // Force hard reload when entering or leaving planner to avoid WebGL context leaks and native script conflicts.
             if (link.href === "/planner" || pathname === "/planner") {
               return (
                 <a
                   key={link.href}
                   href={link.href}
-                  className={`navbar-link${pathname.startsWith(link.href) ? " active" : ""}`}
+                  className={`navbar-link${isActive ? " active" : ""}`}
                 >
                   {link.label}
                 </a>
@@ -58,7 +61,7 @@ export default function Navbar() {
               <Link
                 key={link.href}
                 href={link.href}
-                className={`navbar-link${pathname.startsWith(link.href) ? " active" : ""}`}
+                className={`navbar-link${isActive ? " active" : ""}`}
               >
                 {link.label}
               </Link>
