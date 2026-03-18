@@ -164,7 +164,7 @@ export default function CalculatorPage() {
   }, [user, isLoading, router]);
 
   useEffect(() => {
-    if (user) setCatalog(getCatalog(user.id));
+    if (user) getCatalog().then(setCatalog);
   }, [user]);
 
   const handleCatalogSelect = (id: string) => {
