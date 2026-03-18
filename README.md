@@ -1,62 +1,73 @@
+วิธีใช้งาน
+# 1. คัดลอก env file
+cp .env.example .env
 
-## Run
+# 2. แก้ค่าใน .env
+#    - POSTGRES_PASSWORD
+#    - JWT_SECRET (ใช้ openssl rand -hex 32)
+#    - OPENROUTER_API_KEY
 
-```bash
-git clone https://github.com/Krittat/TileGen.git
-cd TileGen
-python3 -m venv .venv
-source .venv/bin/activate
+# 3. รัน
+docker compose up --build
+
+Frontend: http://localhost:3000
+Backend API: http://localhost:5001
+PostgreSQL: localhost:5432
+Demo account: demo / demo123 (สร้างอัตโนมัติ)
+วิธีเริ่มแอป
+แบบ Docker (แนะนำ — ง่ายสุด)
+# 1. ไปที่ root ของ project
+cd /home/user/PMProject
+
+# 2. คัดลอก env file แล้วแก้ค่า
+cp .env.example .env
+
+# 3. แก้ .env ขั้นต่ำ:
+#    OPENROUTER_API_KEY=sk-or-v1-...   ← ใส่ key จริง (ถ้าใช้ฟีเจอร์ AI)
+#    JWT_SECRET=ใส่-random-string-ยาวๆ
+
+# 4. Build + รัน
+docker compose up --build
+
+เปิดเบราว์เซอร์ที่ http://localhost:3000
+
+แบบ Local Dev (ไม่ใช้ Docker)
+ต้องรัน 3 อย่าง แยกกัน:
+
+Terminal 1 — PostgreSQL
+
+# ต้องติดตั้ง postgres ก่อน หรือรัน postgres ด้วย docker เดี่ยว
+docker run -d --name pg \
+  -e POSTGRES_DB=studiopm \
+  -e POSTGRES_USER=studiopm \
+  -e POSTGRES_PASSWORD=studiopm \
+  -p 5432:5432 postgres:16-alpine
+
+Terminal 2 — Backend
+
+cd backend
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# สำหรับใช้ทดสอบกับรูปจริง
-# export OPENROUTER_API_KEY="<API_KEY>"
+# ตั้ง env vars
+export DATABASE_URL=postgresql://studiopm:studiopm@localhost:5432/studiopm
+export JWT_SECRET=dev-secret
+export OPENROUTER_API_KEY=sk-or-v1-...   # optional
 
 python app.py
-```
+# → รันที่ http://localhost:5001
 
-เปิดที่: http://127.0.0.1:5001
+Terminal 3 — Frontend
 
-หยุดเซิร์ฟเวอร์: `Ctrl + C`
-
-
-
-Setup ครั้งแรก (ทำครั้งเดียว)
-Frontend (Next.js)
 cd frontend
 npm install
 
-Backend (Flask) — ใช้เฉพาะฟีเจอร์ "ทดสอบกับรูปจริง"
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate      # macOS/Linux
-# .venv\Scripts\activate       # Windows
-pip install -r requirements.txt
+# ตั้ง env
+echo "BACKEND_URL=http://localhost:5001" > .env.local
 
-รันทุกครั้ง
-Terminal 1 — Frontend:
-
-cd frontend
 npm run dev
+# → รันที่ http://localhost:3000
 
-เข้าที่ http://localhost:3000
-
-Terminal 2 — Backend (ถ้าต้องการฟีเจอร์ AI รูปจริง):
-
-cd backend
-source .venv/bin/activate
-export OPENROUTER_API_KEY="your_key_here"   # ถ้าต้องการใช้ AI
-python app.py
-
-Backend รันที่ http://localhost:5001
-
-ข้อมูล Auth
-ระบบใช้ localStorage ล้วนๆ ไม่มี database:
-
-มี demo account สร้างให้อัตโนมัติ: demo / demo123
-สมัครสมาชิกใหม่ได้ในหน้า login — ข้อมูลเก็บในเบราว์เซอร์เครื่องนั้น
-สรุป dependencies
-ส่วน	Technology	Install
-Frontend	Next.js 15, React 19, TypeScript	npm install
-3D Engine	Three.js 0.160	โหลดผ่าน CDN อัตโนมัติ
-Backend	Flask, Pillow, pillow-heif	pip install -r requirements.txt
-Database	ไม่มี — ใช้ localStorage	—
+Login เข้าระบบ
+username	password
+demo	demo123
