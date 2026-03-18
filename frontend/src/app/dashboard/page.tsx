@@ -45,7 +45,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (user) {
       setDrafts(getDraftSlots());
-      setCatalogCount(getCatalog(user.id).length);
+      getCatalog().then((items) => setCatalogCount(items.length));
     }
   }, [user]);
 
