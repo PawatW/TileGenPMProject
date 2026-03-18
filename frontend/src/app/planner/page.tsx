@@ -77,13 +77,6 @@ export default function PlannerPage() {
           </div>
         </div>
 
-        {/* Catalog link */}
-        <a href="/planner/catalog" target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: "8px", margin: "0 0 4px 0", padding: "8px 12px", borderRadius: "8px", border: "1px solid var(--border)", background: "var(--surface-1)", textDecoration: "none", color: "var(--text)", fontSize: "12px" }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-          <span style={{ flex: 1 }}>จัดการ Catalog</span>
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" style={{ opacity: 0.5 }}><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-        </a>
-
         {/* Section: Room Size */}
         <div className="panel-section">
           <div className="section-header">
@@ -288,31 +281,42 @@ export default function PlannerPage() {
           <div style={{ marginTop: "16px", padding: "12px", backgroundColor: "var(--bg-secondary)", borderRadius: "8px" }}
             onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
             <span className="field-label" style={{ marginBottom: "8px", display: "block" }}>เพิ่มลายกระเบื้องใหม่</span>
-            <input type="text" id="customTileName" placeholder="ชื่อลาย เช่น โมเสคสีฟ้า" style={{ width: "100%", marginBottom: "6px", padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box" }} />
-            <div style={{ display: "flex", gap: "6px", marginBottom: "6px" }}>
-              <input type="number" id="customTileW" defaultValue={60} min={1} style={{ flex: 1, minWidth: 0, padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)" }} placeholder="กว้าง" />
-              <input type="number" id="customTileL" defaultValue={60} min={1} style={{ flex: 1, minWidth: 0, padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)" }} placeholder="ยาว" />
-              <select id="customTileUnit" style={{ padding: "4px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", flexShrink: 0 }}>
-                <option value="cm">cm</option>
-                <option value="inch">inch</option>
-                <option value="m">m</option>
-              </select>
-            </div>
+            <input type="text" id="customTileName" placeholder="ชื่อลาย เช่น โมเสคสีฟ้า" style={{ width: "100%", marginBottom: "8px", padding: "5px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box", fontSize: "12px" }} />
+            {/* Size row: กว้าง / ยาว / หน่วย — each with label */}
             <div style={{ display: "flex", gap: "6px", marginBottom: "8px" }}>
-              <div style={{ flex: 1 }}>
-                <label style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>ราคา/กล่อง (฿)</label>
-                <input type="number" id="customTilePrice" defaultValue={0} min={0} style={{ width: "100%", padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box" }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <label style={{ fontSize: "10px", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>กว้าง</label>
+                <input type="number" id="customTileW" defaultValue={60} min={1} style={{ width: "100%", padding: "5px 6px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box", fontSize: "12px" }} />
               </div>
-              <div style={{ flex: 1 }}>
-                <label style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>แผ่น/กล่อง</label>
-                <input type="number" id="customTilePerBox" defaultValue={4} min={1} style={{ width: "100%", padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box" }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <label style={{ fontSize: "10px", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>ยาว</label>
+                <input type="number" id="customTileL" defaultValue={60} min={1} style={{ width: "100%", padding: "5px 6px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box", fontSize: "12px" }} />
+              </div>
+              <div style={{ flexShrink: 0, width: "54px" }}>
+                <label style={{ fontSize: "10px", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>หน่วย</label>
+                <select id="customTileUnit" style={{ width: "100%", padding: "5px 4px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", fontSize: "12px" }}>
+                  <option value="cm">cm</option>
+                  <option value="inch">inch</option>
+                  <option value="m">m</option>
+                </select>
+              </div>
+            </div>
+            {/* Price / per box */}
+            <div style={{ display: "flex", gap: "6px", marginBottom: "8px" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <label style={{ fontSize: "10px", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>ราคา/กล่อง (฿)</label>
+                <input type="number" id="customTilePrice" defaultValue={0} min={0} style={{ width: "100%", padding: "5px 6px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box", fontSize: "12px" }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <label style={{ fontSize: "10px", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>แผ่น/กล่อง</label>
+                <input type="number" id="customTilePerBox" defaultValue={4} min={1} style={{ width: "100%", padding: "5px 6px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box", fontSize: "12px" }} />
               </div>
             </div>
             <input type="file" id="customTileFile" accept="image/*" style={{ display: "none" }} onChange={(e) => (window as any).handleCustomTileUpload?.(e)} />
             <button className="draft-btn primary" style={{ width: "100%", justifyContent: "center" }} onClick={() => document.getElementById('customTileFile')?.click()}>
               อัปโหลดรูปลาย
             </button>
-            <span style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginTop: "6px", textAlign: "center" }}>รูปจะถูกย่อไม่เกิน 512px อัตโนมัติ</span>
+            <span style={{ fontSize: "10px", color: "var(--text-muted)", display: "block", marginTop: "6px", textAlign: "center" }}>รูปจะถูกย่อไม่เกิน 512px อัตโนมัติ</span>
           </div>
         </div>
 
