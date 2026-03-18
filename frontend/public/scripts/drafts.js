@@ -1,23 +1,18 @@
 const DRAFT_STORAGE_KEY = 'pm69-floorplanner:drafts:v1';
 const DRAFT_SLOT_COUNT = 5;
+const TOKEN_KEY = 'pm_token_v1';
+
+// ── localStorage helpers ──────────────────────────────────────────────────────
 
 function safeJsonParse(text, fallback) {
-    try {
-        return JSON.parse(text);
-    } catch {
-        return fallback;
-    }
+    try { return JSON.parse(text); } catch { return fallback; }
 }
 
 function readDraftStore() {
     const raw = window.localStorage?.getItem(DRAFT_STORAGE_KEY);
     const parsed = raw ? safeJsonParse(raw, null) : null;
-    if (!parsed || typeof parsed !== 'object') {
-        return { version: 1, slots: {} };
-    }
-    if (!parsed.slots || typeof parsed.slots !== 'object') {
-        parsed.slots = {};
-    }
+    if (!parsed || typeof parsed !== 'object') return { version: 1, slots: {} };
+    if (!parsed.slots || typeof parsed.slots !== 'object') parsed.slots = {};
     parsed.version = 1;
     return parsed;
 }
@@ -26,16 +21,97 @@ function writeDraftStore(store) {
     window.localStorage?.setItem(DRAFT_STORAGE_KEY, JSON.stringify(store));
 }
 
-export function initDraftSlotsUI({ serializeDesignState, applyDesignState, onStateLoaded } = {}) {
+// ── API helpers ───────────────────────────────────────────────────────────────
+
+function getAuthToken() {
+    return window.localStorage?.getItem(TOKEN_KEY) || null;
+}
+
+async function apiSaveSlot(slotId, name, state) {
+    const token = getAuthToken();
+    if (!token) return;
+    try {
+        await fetch(`/api/designs/slot/slot_${slotId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ name, state }),
+        });
+    } catch (e) {
+        console.warn('[drafts] API save failed (using localStorage only):', e);
+    }
+}
+
+async function apiLoadSlot(slotId) {
+    const token = getAuthToken();
+    if (!token) return null;
+    try {
+        const res = await fetch(`/api/designs/slot/slot_${slotId}`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (!res.ok) return null;
+        return await res.json(); // { slotKey, name, savedAt, state } | null
+    } catch (e) {
+        console.warn('[drafts] API load failed (using localStorage):', e);
+        return null;
+    }
+}
+
+async function apiDeleteSlot(slotId) {
+    const token = getAuthToken();
+    if (!token) return;
+    try {
+        await fetch(`/api/designs/slot/slot_${slotId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+    } catch (e) {
+        console.warn('[drafts] API delete failed:', e);
+    }
+}
+
+async function apiListSlots() {
+    const token = getAuthToken();
+    if (!token) return null;
+    try {
+        const res = await fetch('/api/designs/slots', {
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (!res.ok) return null;
+        return await res.json(); // { slot_1: { slotKey, name, savedAt }, ... }
+    } catch {
+        return null;
+    }
+}
+
+// ── UI init ───────────────────────────────────────────────────────────────────
+
+export async function initDraftSlotsUI({ serializeDesignState, applyDesignState, onStateLoaded } = {}) {
     if (typeof serializeDesignState !== 'function' || typeof applyDesignState !== 'function') return;
 
     const slotSelect = document.getElementById('draftSlotSelect');
-    const nameInput = document.getElementById('draftNameInput');
-    const saveBtn = document.getElementById('draftSaveBtn');
-    const loadBtn = document.getElementById('draftLoadBtn');
-    const deleteBtn = document.getElementById('draftDeleteBtn');
-    const metaNote = document.getElementById('draftMetaNote');
+    const nameInput  = document.getElementById('draftNameInput');
+    const saveBtn    = document.getElementById('draftSaveBtn');
+    const loadBtn    = document.getElementById('draftLoadBtn');
+    const deleteBtn  = document.getElementById('draftDeleteBtn');
+    const metaNote   = document.getElementById('draftMetaNote');
     if (!slotSelect || !nameInput || !saveBtn || !loadBtn || !deleteBtn || !metaNote) return;
+
+    // Merge API slot metadata into localStorage on init
+    const apiSlots = await apiListSlots();
+    if (apiSlots) {
+        const store = readDraftStore();
+        for (const [slotKey, meta] of Object.entries(apiSlots)) {
+            const id = slotKey.replace('slot_', '');
+            if (meta && !store.slots[id]) {
+                // Slot exists on server but not locally — reflect name/date
+                store.slots[id] = { name: meta.name, savedAt: meta.savedAt };
+            }
+        }
+        writeDraftStore(store);
+    }
 
     const refresh = () => {
         const store = readDraftStore();
@@ -56,8 +132,7 @@ export function initDraftSlotsUI({ serializeDesignState, applyDesignState, onSta
         const slot = store.slots[slotSelect.value];
         nameInput.value = slot?.name ?? '';
         if (slot?.savedAt) {
-            const dateText = new Date(slot.savedAt).toLocaleString('th-TH');
-            metaNote.textContent = `บันทึกล่าสุด: ${dateText}`;
+            metaNote.textContent = `บันทึกล่าสุด: ${new Date(slot.savedAt).toLocaleString('th-TH')}`;
         } else {
             metaNote.textContent = 'ยังไม่มีข้อมูลใน Slot นี้';
         }
@@ -65,41 +140,66 @@ export function initDraftSlotsUI({ serializeDesignState, applyDesignState, onSta
 
     slotSelect.addEventListener('change', refresh);
 
-    saveBtn.addEventListener('click', () => {
+    saveBtn.addEventListener('click', async () => {
         const slotId = slotSelect.value || '1';
         const store = readDraftStore();
         const now = new Date().toISOString();
         const name = (nameInput.value || '').trim() || store.slots?.[slotId]?.name || `แบบร่าง ${slotId}`;
+        const state = serializeDesignState();
 
-        store.slots[slotId] = {
-            name,
-            savedAt: now,
-            state: serializeDesignState()
-        };
+        // Save to localStorage immediately for instant feedback
+        store.slots[slotId] = { name, savedAt: now, state };
         writeDraftStore(store);
         refresh();
         metaNote.textContent = `บันทึกแล้ว: ${new Date(now).toLocaleString('th-TH')}`;
+
+        // Sync to API in background
+        await apiSaveSlot(slotId, name, state);
     });
 
-    loadBtn.addEventListener('click', () => {
+    loadBtn.addEventListener('click', async () => {
         const slotId = slotSelect.value || '1';
-        const store = readDraftStore();
-        const slot = store.slots[slotId];
-        if (!slot?.state) {
+        metaNote.textContent = 'กำลังโหลด…';
+
+        // Try API first; fall back to localStorage
+        const apiData = await apiLoadSlot(slotId);
+        let stateToLoad = null;
+        let slotName = '';
+        let savedAt = null;
+
+        if (apiData?.state) {
+            stateToLoad = apiData.state;
+            slotName = apiData.name ?? '';
+            savedAt = apiData.savedAt;
+
+            // Mirror into localStorage
+            const store = readDraftStore();
+            store.slots[slotId] = { name: slotName, savedAt, state: stateToLoad };
+            writeDraftStore(store);
+        } else {
+            const store = readDraftStore();
+            const slot = store.slots[slotId];
+            if (slot?.state) {
+                stateToLoad = slot.state;
+                slotName = slot.name ?? '';
+                savedAt = slot.savedAt;
+            }
+        }
+
+        if (!stateToLoad) {
             metaNote.textContent = 'Slot นี้ว่างอยู่ (ยังไม่มีแบบร่าง)';
             return;
         }
-        applyDesignState(slot.state);
-        if (typeof onStateLoaded === 'function') {
-            onStateLoaded(slot.state);
-        }
-        nameInput.value = slot?.name ?? '';
-        metaNote.textContent = slot?.savedAt
-            ? `โหลดแล้ว (บันทึกล่าสุด: ${new Date(slot.savedAt).toLocaleString('th-TH')})`
+
+        applyDesignState(stateToLoad);
+        if (typeof onStateLoaded === 'function') onStateLoaded(stateToLoad);
+        nameInput.value = slotName;
+        metaNote.textContent = savedAt
+            ? `โหลดแล้ว (บันทึกล่าสุด: ${new Date(savedAt).toLocaleString('th-TH')})`
             : 'โหลดแล้ว';
     });
 
-    deleteBtn.addEventListener('click', () => {
+    deleteBtn.addEventListener('click', async () => {
         const slotId = slotSelect.value || '1';
         const store = readDraftStore();
         if (!store.slots[slotId]) {
@@ -112,6 +212,7 @@ export function initDraftSlotsUI({ serializeDesignState, applyDesignState, onSta
         writeDraftStore(store);
         refresh();
         metaNote.textContent = 'ลบ Slot แล้ว';
+        await apiDeleteSlot(slotId);
     });
 
     refresh();

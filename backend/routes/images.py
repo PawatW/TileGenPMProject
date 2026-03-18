@@ -1,53 +1,62 @@
+"""Image normalization and AI-edit endpoints (moved from app.py)."""
+
+import base64
+import io
 import os
+from pathlib import Path
 
-from flask import Flask
-from flask_cors import CORS
-from pillow_heif import register_heif_opener
-from werkzeug.security import generate_password_hash
+import requests
+from flask import Blueprint, current_app, jsonify, request
+from PIL import Image, ImageOps, UnidentifiedImageError
 
-from models import User, db
-
-register_heif_opener()
+bp = Blueprint("images", __name__)
 
 
-def create_app() -> Flask:
-    app = Flask(__name__)
+# ── helpers ──────────────────────────────────────────────────────────────────
 
-    # ── database ──────────────────────────────────────────────────────────────
-    database_url = os.environ.get("DATABASE_URL", "sqlite:///dev.db")
-    # SQLAlchemy requires postgresql:// not postgres://
-    if database_url.startswith("postgres://"):
-        database_url = database_url.replace("postgres://", "postgresql://", 1)
-    app.config["SQLALCHEMY_DATABASE_URI"] = database_url
-    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    app.config["MAX_CONTENT_LENGTH"] = 15 * 1024 * 1024  # 15 MB
 
-    db.init_app(app)
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+def _bytes_to_data_url(data: bytes, mime_type: str) -> str:
+    encoded = base64.b64encode(data).decode("utf-8")
+    return f"data:{mime_type};base64,{encoded}"
 
-    # ── blueprints ────────────────────────────────────────────────────────────
-    from routes.auth import bp as auth_bp
-    from routes.catalog import bp as catalog_bp
-    from routes.designs import bp as designs_bp
-    from routes.images import bp as images_bp
-    from routes.quotations import bp as quotations_bp
 
-    for blueprint in (auth_bp, designs_bp, catalog_bp, quotations_bp, images_bp):
-        app.register_blueprint(blueprint)
+def _build_normalized_filename(filename: str | None, mime_type: str) -> str:
+    stem = Path(filename or "uploaded-image").stem or "uploaded-image"
+    extension = "png" if mime_type == "image/png" else "jpg"
+    return f"{stem}.{extension}"
 
-    # ── init DB ───────────────────────────────────────────────────────────────
-    with app.app_context():
-        db.create_all()
-        _seed_demo_user(app)
 
-    return app
+def _fix_orientation_if_needed(
+    image_bytes: bytes, target_mime: str
+) -> tuple[bytes, bool]:
+    with Image.open(io.BytesIO(image_bytes)) as img:
+        exif = img.getexif()
+        orientation = exif.get(274, 1) if exif else 1
+        if orientation == 1:
+            return image_bytes, False
 
+        oriented = ImageOps.exif_transpose(img)
+        out = io.BytesIO()
+
+        if target_mime == "image/png":
+            oriented.save(out, format="PNG", optimize=True)
+            return out.getvalue(), True
+
+        if oriented.mode not in ("RGB", "L"):
+            base = Image.new("RGB", oriented.size, "white")
+            alpha_img = oriented.convert("RGBA")
+            base.paste(alpha_img, mask=alpha_img.getchannel("A"))
+            rgb_img = base
+        else:
+            rgb_img = oriented.convert("RGB")
 
         rgb_img.save(out, format="JPEG", quality=95, optimize=True)
         return out.getvalue(), True
 
 
-def _normalize_upload_image(image_bytes: bytes, mimetype: str | None, filename: str | None) -> tuple[bytes, str]:
+def _normalize_upload_image(
+    image_bytes: bytes, mimetype: str | None, filename: str | None
+) -> tuple[bytes, str]:
     allowed_mimes = {"image/jpeg", "image/jpg", "image/png"}
     ext = Path(filename or "").suffix.lower().lstrip(".")
     raw_mime = (mimetype or "").strip().lower()
@@ -56,33 +65,32 @@ def _normalize_upload_image(image_bytes: bytes, mimetype: str | None, filename: 
     if raw_mime in allowed_mimes:
         target_mime = "image/png" if raw_mime == "image/png" else "image/jpeg"
         try:
-            normalized_bytes, rotated = _fix_orientation_if_needed(image_bytes, target_mime)
+            normalized_bytes, rotated = _fix_orientation_if_needed(
+                image_bytes, target_mime
+            )
         except UnidentifiedImageError as exc:
-            raise ValueError("Unsupported image format. Please upload a valid image file.") from exc
-
+            raise ValueError(
+                "Unsupported image format. Please upload a valid image file."
+            ) from exc
         if rotated:
-            app.logger.info("[image-edit] fixed EXIF orientation (filename=%s, mimetype=%s)", safe_filename, raw_mime)
-        else:
-            app.logger.info("[image-edit] using uploaded image as-is (filename=%s, mimetype=%s)", safe_filename, raw_mime)
+            current_app.logger.info(
+                "[image] fixed EXIF orientation (filename=%s)", safe_filename
+            )
         return normalized_bytes, target_mime
 
     if ext in {"jpg", "jpeg", "png"}:
         target_mime = "image/png" if ext == "png" else "image/jpeg"
         try:
-            normalized_bytes, rotated = _fix_orientation_if_needed(image_bytes, target_mime)
+            normalized_bytes, _ = _fix_orientation_if_needed(image_bytes, target_mime)
         except UnidentifiedImageError as exc:
-            raise ValueError("Unsupported image format. Please upload a valid image file.") from exc
-
-        if rotated:
-            app.logger.info("[image-edit] fixed EXIF orientation (filename=%s, ext=%s)", safe_filename, ext)
-        else:
-            app.logger.info("[image-edit] using uploaded image as-is (filename=%s, ext=%s)", safe_filename, ext)
+            raise ValueError(
+                "Unsupported image format. Please upload a valid image file."
+            ) from exc
         return normalized_bytes, target_mime
 
     try:
         with Image.open(io.BytesIO(image_bytes)) as img:
             img = ImageOps.exif_transpose(img)
-
             if img.mode not in ("RGB", "L"):
                 base = Image.new("RGB", img.size, "white")
                 alpha_img = img.convert("RGBA")
@@ -90,18 +98,13 @@ def _normalize_upload_image(image_bytes: bytes, mimetype: str | None, filename: 
                 rgb_img = base
             else:
                 rgb_img = img.convert("RGB")
-
             out = io.BytesIO()
             rgb_img.save(out, format="JPEG", quality=95, optimize=True)
-            app.logger.info(
-                "[image-edit] converted uploaded image to JPEG (filename=%s, mimetype=%s, ext=%s)",
-                safe_filename,
-                raw_mime or "unknown",
-                ext or "unknown",
-            )
             return out.getvalue(), "image/jpeg"
     except UnidentifiedImageError as exc:
-        raise ValueError("Unsupported image format. Please upload a valid image file.") from exc
+        raise ValueError(
+            "Unsupported image format. Please upload a valid image file."
+        ) from exc
     except Exception as exc:
         raise ValueError("Failed to process uploaded image.") from exc
 
@@ -110,15 +113,14 @@ def _extract_image_data_url(openrouter_result: dict) -> str | None:
     choices = openrouter_result.get("choices")
     if not isinstance(choices, list) or not choices:
         return None
-
     message = choices[0].get("message")
     if not isinstance(message, dict):
         return None
 
     images = message.get("images")
     if isinstance(images, list):
-        for image_item in images:
-            image_url = image_item.get("image_url") if isinstance(image_item, dict) else None
+        for item in images:
+            image_url = item.get("image_url") if isinstance(item, dict) else None
             if isinstance(image_url, dict):
                 candidate = image_url.get("url")
                 if isinstance(candidate, str) and candidate.startswith("data:image/"):
@@ -129,12 +131,10 @@ def _extract_image_data_url(openrouter_result: dict) -> str | None:
     content = message.get("content")
     if isinstance(content, str) and content.startswith("data:image/"):
         return content
-
     if isinstance(content, list):
         for part in content:
             if not isinstance(part, dict):
                 continue
-
             image_url = part.get("image_url")
             if isinstance(image_url, dict):
                 candidate = image_url.get("url")
@@ -142,61 +142,63 @@ def _extract_image_data_url(openrouter_result: dict) -> str | None:
                     return candidate
             elif isinstance(image_url, str) and image_url.startswith("data:image/"):
                 return image_url
-
     return None
 
 
-@app.post("/api/image-normalize")
+# ── endpoints ─────────────────────────────────────────────────────────────────
+
+
+@bp.post("/api/image-normalize")
 def image_normalize():
     image_file = request.files.get("image") or request.files.get("room_image")
     if image_file is None or not image_file.filename:
         return jsonify({"error": "Please upload an image"}), 400
-
     image_bytes = image_file.read()
     if not image_bytes:
         return jsonify({"error": "Uploaded image is empty"}), 400
-
     try:
         normalized_bytes, normalized_mime = _normalize_upload_image(
-            image_bytes,
-            image_file.mimetype,
-            image_file.filename,
+            image_bytes, image_file.mimetype, image_file.filename
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
-
     return jsonify(
         {
             "image_data_url": _bytes_to_data_url(normalized_bytes, normalized_mime),
             "mime_type": normalized_mime,
-            "filename": _build_normalized_filename(image_file.filename, normalized_mime),
+            "filename": _build_normalized_filename(
+                image_file.filename, normalized_mime
+            ),
         }
     )
 
 
-@app.post("/api/image-edit")
+@bp.post("/api/image-edit")
 def image_edit():
-    api_key = os.getenv("OPENROUTER_API_KEY", "")
+    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
     if not api_key:
         return jsonify({"error": "Missing OPENROUTER_API_KEY on server"}), 500
 
     room_image = request.files.get("room_image")
     if room_image is None or not room_image.filename:
         return jsonify({"error": "Please upload a room image"}), 400
-
     room_bytes = room_image.read()
     if not room_bytes:
         return jsonify({"error": "Uploaded room image is empty"}), 400
-
     try:
-        room_bytes, room_mime = _normalize_upload_image(room_bytes, room_image.mimetype, room_image.filename)
+        room_bytes, room_mime = _normalize_upload_image(
+            room_bytes, room_image.mimetype, room_image.filename
+        )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
     room_data_url = _bytes_to_data_url(room_bytes, room_mime)
-
-    tile_reference_data_url = (request.form.get("tile_reference_data_url") or "").strip()
-    wall_reference_data_url = (request.form.get("wall_reference_data_url") or "").strip()
+    tile_reference_data_url = (
+        request.form.get("tile_reference_data_url") or ""
+    ).strip()
+    wall_reference_data_url = (
+        request.form.get("wall_reference_data_url") or ""
+    ).strip()
     if not tile_reference_data_url.startswith("data:image/"):
         return jsonify({"error": "Tile reference image is invalid"}), 400
     if not wall_reference_data_url.startswith("data:image/"):
@@ -204,7 +206,9 @@ def image_edit():
 
     tile_pattern_label = (request.form.get("tile_pattern_label") or "tile").strip()
     wall_pattern_label = (request.form.get("wall_pattern_label") or "wall").strip()
-    model_name = os.getenv("OPENROUTER_IMAGE_MODEL", "google/gemini-3.1-flash-image-preview").strip()
+    model_name = os.getenv(
+        "OPENROUTER_IMAGE_MODEL", "google/gemini-3.1-flash-image-preview"
+    ).strip()
 
     prompt = (
         "คุณจะได้รับรูปภาพ 3 รูป: (1) ห้องเดิมของลูกค้า (2) ลายกระเบื้องพื้นที่ต้องใช้ "
@@ -221,8 +225,14 @@ def image_edit():
                 "content": [
                     {"type": "text", "text": prompt},
                     {"type": "image_url", "image_url": {"url": room_data_url}},
-                    {"type": "image_url", "image_url": {"url": tile_reference_data_url}},
-                    {"type": "image_url", "image_url": {"url": wall_reference_data_url}},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": tile_reference_data_url},
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": wall_reference_data_url},
+                    },
                 ],
             }
         ],
@@ -239,16 +249,31 @@ def image_edit():
             json=payload,
             timeout=180,
         )
-        db.session.add(demo)
-        db.session.commit()
-        app.logger.info("Demo user seeded  →  username: demo  /  password: demo123")
+    except requests.RequestException as exc:
+        return jsonify({"error": "Failed to call OpenRouter", "details": str(exc)}), 502
 
+    if not response.ok:
+        try:
+            details = response.json()
+        except ValueError:
+            details = response.text
+        return jsonify({"error": "OpenRouter request failed", "details": details}), 502
 
-app = create_app()
+    try:
+        result = response.json()
+    except ValueError:
+        return jsonify({"error": "OpenRouter returned non-JSON response"}), 502
 
-if __name__ == "__main__":
-    app.run(
-        host="0.0.0.0",
-        port=5001,
-        debug=os.environ.get("FLASK_ENV") == "development",
-    )
+    output_image_data_url = _extract_image_data_url(result)
+    if not output_image_data_url:
+        return (
+            jsonify(
+                {
+                    "error": "OpenRouter response did not include an image",
+                    "details": result,
+                }
+            ),
+            502,
+        )
+
+    return jsonify({"output_image_data_url": output_image_data_url})
