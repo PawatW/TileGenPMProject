@@ -1,5 +1,9 @@
 Flask
 flask-cors
+Flask-SQLAlchemy
+psycopg2-binary
+PyJWT
+gunicorn
 requests
 Pillow
 pillow-heif
