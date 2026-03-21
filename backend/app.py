@@ -35,12 +35,14 @@ def create_app() -> Flask:
     for blueprint in (auth_bp, designs_bp, catalog_bp, quotations_bp, images_bp):
         app.register_blueprint(blueprint)
 
-    # ── init DB ───────────────────────────────────────────────────────────────
+    return app
+
+
+def init_database(app: Flask) -> None:
+    """Initialize database objects and seed baseline data once."""
     with app.app_context():
         db.create_all()
         _seed_demo_user(app)
-
-    return app
 
 
 def _seed_demo_user(app: Flask) -> None:
@@ -59,6 +61,7 @@ def _seed_demo_user(app: Flask) -> None:
 app = create_app()
 
 if __name__ == "__main__":
+    init_database(app)
     app.run(
         host="0.0.0.0",
         port=5001,
