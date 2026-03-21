@@ -1,59 +1,44 @@
-// ───────────────────────────────────────────────────────────────
-// Catalog storage
-// ───────────────────────────────────────────────────────────────
+/**
+ * storage.ts — Calculator catalog helpers.
+ *
+ * Previously localStorage-based; now delegates to the REST API.
+ * The CatalogItem type and function signatures are kept for compatibility.
+ */
 
-export interface CatalogItem {
-  id: string;
-  name: string;
-  widthCm: number;
-  heightCm: number;
-  pricePerBox: number;
-  tilesPerBox: number;
-  color: string; // hex e.g. "#cccccc"
-  note: string;
-  createdAt: string;
+import {
+  apiGetCatalog,
+  apiCreateCatalogItem,
+  apiUpdateCatalogItem,
+  apiDeleteCatalogItem,
+  type CatalogItem,
+} from "./api";
+
+export type { CatalogItem };
+
+export async function getCatalog(): Promise<CatalogItem[]> {
+  return apiGetCatalog();
 }
 
-const CATALOG_KEY = (userId: string) => `pm_catalog_v1_${userId}`;
-
-export function getCatalog(userId: string): CatalogItem[] {
-  if (typeof window === "undefined") return [];
-  try {
-    return JSON.parse(localStorage.getItem(CATALOG_KEY(userId)) || "[]");
-  } catch {
-    return [];
-  }
+export async function addCatalogItem(
+  item: Omit<CatalogItem, "id" | "createdAt">
+): Promise<CatalogItem> {
+  return apiCreateCatalogItem(item);
 }
 
-export function saveCatalog(userId: string, items: CatalogItem[]): void {
-  localStorage.setItem(CATALOG_KEY(userId), JSON.stringify(items));
+export async function updateCatalogItem(
+  id: string,
+  updates: Partial<Omit<CatalogItem, "id" | "createdAt">>
+): Promise<void> {
+  await apiUpdateCatalogItem(id, updates);
 }
 
-export function addCatalogItem(userId: string, item: Omit<CatalogItem, "id" | "createdAt">): CatalogItem {
-  const newItem: CatalogItem = {
-    ...item,
-    id: crypto.randomUUID(),
-    createdAt: new Date().toISOString(),
-  };
-  const items = getCatalog(userId);
-  saveCatalog(userId, [...items, newItem]);
-  return newItem;
+export async function deleteCatalogItem(id: string): Promise<void> {
+  await apiDeleteCatalogItem(id);
 }
 
-export function updateCatalogItem(userId: string, id: string, updates: Partial<Omit<CatalogItem, "id" | "createdAt">>): void {
-  const items = getCatalog(userId).map((it) => (it.id === id ? { ...it, ...updates } : it));
-  saveCatalog(userId, items);
-}
-
-export function deleteCatalogItem(userId: string, id: string): void {
-  saveCatalog(userId, getCatalog(userId).filter((it) => it.id !== id));
-}
-
-// ───────────────────────────────────────────────────────────────
-// Draft helpers (read-only, written by existing floor.js system)
-// ───────────────────────────────────────────────────────────────
-
-const DRAFT_KEY = "pm69-floorplanner:drafts:v1";
+// ── Draft slot metadata ───────────────────────────────────────────────────────
+// Slot metadata is written by drafts.js (vanilla JS) to localStorage as a
+// mirror of what it saves to the API, so the dashboard can read it synchronously.
 
 export interface DraftSlot {
   slot: string; // "1" .. "5"
@@ -61,19 +46,25 @@ export interface DraftSlot {
   savedAt: string | null;
 }
 
+const DRAFT_KEY = "pm69-floorplanner:drafts:v1";
+
 export function getDraftSlots(): DraftSlot[] {
-  if (typeof window === "undefined") return [];
+  if (typeof window === "undefined") return emptySlots();
   try {
     const raw = localStorage.getItem(DRAFT_KEY);
     if (!raw) return emptySlots();
-    const store = JSON.parse(raw) as { slots?: Record<string, { name?: string; savedAt?: string }> };
-    const slots: DraftSlot[] = [];
-    for (let i = 1; i <= 5; i++) {
-      const id = String(i);
+    const store = JSON.parse(raw) as {
+      slots?: Record<string, { name?: string; savedAt?: string }>;
+    };
+    return Array.from({ length: 5 }, (_, i) => {
+      const id = String(i + 1);
       const s = store.slots?.[id];
-      slots.push({ slot: id, name: s?.name ?? `Slot ${id} (ว่าง)`, savedAt: s?.savedAt ?? null });
-    }
-    return slots;
+      return {
+        slot: id,
+        name: s?.name ?? `Slot ${id} (ว่าง)`,
+        savedAt: s?.savedAt ?? null,
+      };
+    });
   } catch {
     return emptySlots();
   }
