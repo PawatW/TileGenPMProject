@@ -2644,9 +2644,15 @@ function loadCatalog() {
         const catalog = JSON.parse(raw);
         if (Array.isArray(catalog.tiles)) {
             catalog.tiles.forEach(item => {
-                if (!tilePatternList.some(t => t.key === item.key)) {
-                    tilePatternList.push(item);
-                    tileTextures[item.key] = loadImageTileTexture(item.url, 2);
+                const normalizedItem = {
+                    ...item,
+                    type: item.type || 'image',
+                };
+                if (!tilePatternList.some(t => t.key === normalizedItem.key)) {
+                    tilePatternList.push(normalizedItem);
+                    if (normalizedItem.type === 'image' && normalizedItem.url) {
+                        tileTextures[normalizedItem.key] = loadImageTileTexture(normalizedItem.url, 2);
+                    }
                 }
             });
             renderTileSwatches();

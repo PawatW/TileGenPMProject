@@ -26,7 +26,7 @@ const QUICK_ACTIONS = [
     iconClass: "green",
     title: "คลัง Tile",
     desc: "จัดการกระเบื้องของฉัน",
-    href: "/catalog",
+    href: "/planner/catalog",
   },
 ];
 
