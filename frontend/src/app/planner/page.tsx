@@ -29,6 +29,11 @@ export default function PlannerPage() {
 
   useEffect(() => {
     if (!user) return;
+    // ถ้ามาจาก dashboard พร้อม ?slot=N ให้ auto-load slot นั้น
+    const params = new URLSearchParams(window.location.search);
+    const slot = params.get("slot");
+    if (slot) (window as any).__autoLoadSlot = slot;
+
     const script = document.createElement("script");
     script.type = "module";
     script.src = "/scripts/floor.js";

@@ -23,28 +23,64 @@ export function createWallTextureList(canvases) {
 }
 
 export const fixtureCatalog = [
+    // ── หน้าต่าง ────────────────────────────────────────────────────────────
     {
         key: 'window',
-        label: 'หน้าต่าง',
+        label: 'หน้าต่างมาตรฐาน',
         type: 'window',
         width: 0.9,
         height: 0.8,
         depth: 0.08,
-        preview: {
-            base: '#93c5fd',
-            accent: '#e2e8f0'
-        }
+        preview: { base: '#93c5fd', accent: '#e2e8f0' }
     },
     {
+        key: 'window_wide',
+        label: 'หน้าต่างบานกว้าง',
+        type: 'window_wide',
+        renderAs: 'window',
+        width: 1.4,
+        height: 0.9,
+        depth: 0.08,
+        preview: { base: '#7dd3fc', accent: '#e2e8f0' }
+    },
+    {
+        key: 'window_small',
+        label: 'หน้าต่างบานเล็ก',
+        type: 'window_small',
+        renderAs: 'window',
+        width: 0.5,
+        height: 0.5,
+        depth: 0.08,
+        preview: { base: '#bae6fd', accent: '#f1f5f9' }
+    },
+    // ── ประตู ────────────────────────────────────────────────────────────────
+    {
         key: 'door',
-        label: 'ประตู',
+        label: 'ประตูมาตรฐาน',
         type: 'door',
         width: 0.95,
         height: 2.0,
         depth: 0.1,
-        preview: {
-            base: '#b08968',
-            accent: '#fef9c3'
-        }
-    }
+        preview: { base: '#b08968', accent: '#fef9c3' }
+    },
+    {
+        key: 'door_slide',
+        label: 'ประตูบานเลื่อน',
+        type: 'door_slide',
+        renderAs: 'door',
+        width: 1.2,
+        height: 2.1,
+        depth: 0.05,
+        preview: { base: '#8b5cf6', accent: '#ede9fe' }
+    },
+    {
+        key: 'door_double',
+        label: 'ประตูบานคู่',
+        type: 'door_double',
+        renderAs: 'door',
+        width: 1.8,
+        height: 2.1,
+        depth: 0.1,
+        preview: { base: '#78350f', accent: '#fef9c3' }
+    },
 ];

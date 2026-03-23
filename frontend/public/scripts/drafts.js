@@ -233,4 +233,13 @@ export async function initDraftSlotsUI({ serializeDesignState, applyDesignState,
     });
 
     refresh();
+
+    // Auto-load slot ถ้ามาจาก dashboard (?slot=N)
+    const autoSlot = window.__autoLoadSlot;
+    if (autoSlot) {
+        delete window.__autoLoadSlot;
+        slotSelect.value = String(autoSlot);
+        refresh();
+        loadBtn.click();
+    }
 }
