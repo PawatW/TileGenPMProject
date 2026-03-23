@@ -147,7 +147,7 @@ export default function DashboardPage() {
                   )}
                 </div>
                 <Link
-                  href="/planner"
+                  href={`/planner?slot=${draft.slot}`}
                   className="design-card-open"
                   style={draft.savedAt ? {} : { opacity: 0.4, pointerEvents: "none" }}
                 >

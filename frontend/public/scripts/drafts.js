@@ -105,6 +105,60 @@ async function apiListSlots() {
 
 // ── UI init ───────────────────────────────────────────────────────────────────
 
+/** Design เริ่มต้นสำหรับผู้ใช้ใหม่ — ห้อง 4×4 m พร้อมกระเบื้อง หน้าต่าง และประตู */
+const DEFAULT_DESIGN_STATE = {
+    schemaVersion: 4,
+    gridWidth: 4.0,
+    gridHeight: 4.0,
+    wallHeight: 2.5,
+    tilePattern: 'mosaic_hideaway_alpine',
+    wallPattern: 'paint',
+    wallLayoutPreset: 'full',
+    wallLayoutMode: 'full',
+    gridData: [
+        [1, 1, 1, 1],
+        [1, 1, 1, 1],
+        [1, 1, 1, 1],
+        [1, 1, 1, 1],
+    ],
+    rotationData: [
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+    ],
+    flipData: [
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+    ],
+    floorTextureData: {},
+    wallTextureData: {},
+    customTiles: [],
+    customWalls: [],
+    customFixtures: [],
+    removedWalls: [],
+    tileOffsets: {},
+    tileGlobalTransforms: {},
+    fixtures: [
+        // หน้าต่างกลางผนังด้านบน (cell 1,0 — top wall)
+        {
+            type: 'window',
+            position: { x: -0.5, y: 1.6, z: -2.0 },
+            rotation: { y: 0 },
+            attachedWallKey: '1,0,top'
+        },
+        // ประตูผนังด้านล่าง (cell 2,3 — bottom wall)
+        {
+            type: 'door',
+            position: { x: 0.5, y: 1.0, z: 2.0 },
+            rotation: { y: 0 },
+            attachedWallKey: '2,3,bottom'
+        },
+    ],
+};
+
 export async function initDraftSlotsUI({ serializeDesignState, applyDesignState, onStateLoaded } = {}) {
     if (typeof serializeDesignState !== 'function' || typeof applyDesignState !== 'function') return;
 
@@ -233,4 +287,38 @@ export async function initDraftSlotsUI({ serializeDesignState, applyDesignState,
     });
 
     refresh();
+
+    // Auto-load slot ถ้ามาจาก dashboard (?slot=N)
+    const autoSlot = window.__autoLoadSlot;
+    if (autoSlot) {
+        delete window.__autoLoadSlot;
+        slotSelect.value = String(autoSlot);
+        refresh();
+        loadBtn.click();
+        return;
+    }
+
+    const isNewUser = apiSlots !== null && Object.keys(apiSlots).length === 0;
+    const hasLocalData = Object.values(readDraftStore().slots).some(s => s?.state);
+
+    // ผู้ใช้ที่มี draft บันทึกไว้ → โหลด slot แรกที่เจออัตโนมัติ
+    if (!isNewUser && apiSlots && Object.keys(apiSlots).length > 0) {
+        const firstSlotKey = ['slot_1', 'slot_2', 'slot_3', 'slot_4', 'slot_5']
+            .find(k => apiSlots[k]);
+        if (firstSlotKey) {
+            const firstId = firstSlotKey.replace('slot_', '');
+            slotSelect.value = firstId;
+            refresh();
+            loadBtn.click();
+            return;
+        }
+    }
+
+    // ผู้ใช้ใหม่ (API ตอบว่าไม่มี slot ใดเลย และ localStorage ก็ว่าง)
+    // → โหลด default design ให้ทันที
+    if (isNewUser && !hasLocalData) {
+        applyDesignState(DEFAULT_DESIGN_STATE);
+        if (typeof onStateLoaded === 'function') onStateLoaded(DEFAULT_DESIGN_STATE);
+        metaNote.textContent = 'โหลด Design ตัวอย่างสำหรับผู้ใช้ใหม่';
+    }
 }
