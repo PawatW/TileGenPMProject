@@ -46,12 +46,21 @@ export interface DraftSlot {
   savedAt: string | null;
 }
 
-const DRAFT_KEY = "pm69-floorplanner:drafts:v1";
+function getDraftKey(): string {
+  try {
+    const token = localStorage.getItem("pm_token_v1");
+    if (!token) return "pm69-floorplanner:drafts:v1:anonymous";
+    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return `pm69-floorplanner:drafts:v1:${payload.sub || "anonymous"}`;
+  } catch {
+    return "pm69-floorplanner:drafts:v1:anonymous";
+  }
+}
 
 export function getDraftSlots(): DraftSlot[] {
   if (typeof window === "undefined") return emptySlots();
   try {
-    const raw = localStorage.getItem(DRAFT_KEY);
+    const raw = localStorage.getItem(getDraftKey());
     if (!raw) return emptySlots();
     const store = JSON.parse(raw) as {
       slots?: Record<string, { name?: string; savedAt?: string }>;

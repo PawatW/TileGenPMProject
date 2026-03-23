@@ -1,6 +1,23 @@
-const DRAFT_STORAGE_KEY = 'pm69-floorplanner:drafts:v1';
 const DRAFT_SLOT_COUNT = 5;
 const TOKEN_KEY = 'pm_token_v1';
+
+// ── user-scoped storage key ───────────────────────────────────────────────────
+// Decode user ID from JWT (no library needed — just base64 the payload)
+
+function getCurrentUserId() {
+    const token = window.localStorage?.getItem(TOKEN_KEY);
+    if (!token) return 'anonymous';
+    try {
+        const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+        return payload.sub || 'anonymous';
+    } catch {
+        return 'anonymous';
+    }
+}
+
+function getDraftStorageKey() {
+    return `pm69-floorplanner:drafts:v1:${getCurrentUserId()}`;
+}
 
 // ── localStorage helpers ──────────────────────────────────────────────────────
 
@@ -9,7 +26,7 @@ function safeJsonParse(text, fallback) {
 }
 
 function readDraftStore() {
-    const raw = window.localStorage?.getItem(DRAFT_STORAGE_KEY);
+    const raw = window.localStorage?.getItem(getDraftStorageKey());
     const parsed = raw ? safeJsonParse(raw, null) : null;
     if (!parsed || typeof parsed !== 'object') return { version: 1, slots: {} };
     if (!parsed.slots || typeof parsed.slots !== 'object') parsed.slots = {};
@@ -18,7 +35,7 @@ function readDraftStore() {
 }
 
 function writeDraftStore(store) {
-    window.localStorage?.setItem(DRAFT_STORAGE_KEY, JSON.stringify(store));
+    window.localStorage?.setItem(getDraftStorageKey(), JSON.stringify(store));
 }
 
 // ── API helpers ───────────────────────────────────────────────────────────────
