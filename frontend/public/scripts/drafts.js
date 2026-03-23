@@ -298,10 +298,24 @@ export async function initDraftSlotsUI({ serializeDesignState, applyDesignState,
         return;
     }
 
-    // ผู้ใช้ใหม่ (API ตอบว่าไม่มี slot ใดเลย และ localStorage ก็ว่าง)
-    // → โหลด default design ให้ทันที
     const isNewUser = apiSlots !== null && Object.keys(apiSlots).length === 0;
     const hasLocalData = Object.values(readDraftStore().slots).some(s => s?.state);
+
+    // ผู้ใช้ที่มี draft บันทึกไว้ → โหลด slot แรกที่เจออัตโนมัติ
+    if (!isNewUser && apiSlots && Object.keys(apiSlots).length > 0) {
+        const firstSlotKey = ['slot_1', 'slot_2', 'slot_3', 'slot_4', 'slot_5']
+            .find(k => apiSlots[k]);
+        if (firstSlotKey) {
+            const firstId = firstSlotKey.replace('slot_', '');
+            slotSelect.value = firstId;
+            refresh();
+            loadBtn.click();
+            return;
+        }
+    }
+
+    // ผู้ใช้ใหม่ (API ตอบว่าไม่มี slot ใดเลย และ localStorage ก็ว่าง)
+    // → โหลด default design ให้ทันที
     if (isNewUser && !hasLocalData) {
         applyDesignState(DEFAULT_DESIGN_STATE);
         if (typeof onStateLoaded === 'function') onStateLoaded(DEFAULT_DESIGN_STATE);
