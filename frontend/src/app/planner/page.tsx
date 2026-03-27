@@ -299,6 +299,15 @@ export default function PlannerPage() {
             1 Cell = 1 แผ่น
           </button>
           <p className="hint" style={{ marginTop: "4px" }}>เปิดเพื่อให้แต่ละช่องตารางแสดงกระเบื้อง 1 แผ่นพอดี</p>
+          <button
+            id="runningBondBtn"
+            className="btn-outline"
+            style={{ marginTop: "8px", width: "100%", justifyContent: "center" }}
+            onClick={() => (window as any).toggleRunningBond?.()}
+          >
+            วางสลับ (Running Bond)
+          </button>
+          <p className="hint" style={{ marginTop: "4px" }}>วางสลับครึ่งแผ่น (Brick Bond) — เหมาะกับกระเบื้องไม้สี่เหลี่ยมผืนผ้า</p>
 
           <div style={{ marginTop: "16px", padding: "12px", backgroundColor: "var(--bg-secondary)", borderRadius: "8px" }}
             onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>

@@ -70,6 +70,7 @@ const WALL_LAYOUT_CUSTOM = 'custom';
 let wallLayoutPreset = WALL_LAYOUT_OPEN;
 let wallLayoutMode = WALL_LAYOUT_OPEN;
 let tileCellMode = false; // true = 1 grid cell แสดง 1 แผ่นกระเบื้องพอดี
+let tileLayoutMode = 'world'; // 'world' | 'running_bond'  (running bond = วางสลับครึ่งแผ่น)
 let pricingSummary = {
     totalAreaSqm: 0,
     areaPerTile: 0,
@@ -268,6 +269,7 @@ function serializeDesignState() {
         wallLayoutPreset,
         wallLayoutMode,
         tileCellMode,
+        tileLayoutMode,
         gridData,
         rotationData,
         flipData,
@@ -298,6 +300,9 @@ function applyDesignState(state) {
     tileCellMode = !!state.tileCellMode;
     const tcmBtn = document.getElementById('tileCellModeBtn');
     if (tcmBtn) tcmBtn.textContent = tileCellMode ? '1 Cell = 1 แผ่น ✓' : '1 Cell = 1 แผ่น';
+    tileLayoutMode = state.tileLayoutMode === 'running_bond' ? 'running_bond' : 'world';
+    const rbBtn = document.getElementById('runningBondBtn');
+    if (rbBtn) rbBtn.textContent = tileLayoutMode === 'running_bond' ? 'วางสลับ (Running Bond) ✓' : 'วางสลับ (Running Bond)';
     wallLayoutPreset = state.wallLayoutPreset === WALL_LAYOUT_FULL ? WALL_LAYOUT_FULL : WALL_LAYOUT_OPEN;
     if ([WALL_LAYOUT_OPEN, WALL_LAYOUT_FULL, WALL_LAYOUT_CUSTOM].includes(state.wallLayoutMode)) {
         wallLayoutMode = state.wallLayoutMode;
@@ -603,6 +608,63 @@ function loadImageWallMaterial(url, repeatX = 2, repeatY = 1, rotation = 0) {
         map,
         roughness: 0.8,
         metalness: 0.0
+    });
+}
+
+// ── Running Bond (วางสลับ) ShaderMaterial ────────────────────────────────────
+// ใช้ fragment shader คำนวณ UV จาก world position โดยตรง
+// → ถูกต้องสมบูรณ์ไม่ว่ากระเบื้องจะขนาดใดก็ตาม
+function createRunningBondMaterial(baseTexture, tileW, tileL, offX, offY) {
+    const GROUT_M = 0.003; // ความกว้าง grout 3 mm
+    const groutFracX = GROUT_M / tileW;
+    const groutFracY = GROUT_M / tileL;
+    return new THREE.ShaderMaterial({
+        uniforms: {
+            map:      { value: baseTexture },
+            tileW:    { value: tileW  },
+            tileL:    { value: tileL  },
+            offX:     { value: offX || 0 },
+            offY:     { value: offY || 0 },
+            groutFX:  { value: groutFracX },
+            groutFY:  { value: groutFracY },
+            groutCol: { value: new THREE.Color(0xf0ede8) }, // สี grout ขาวนวล
+        },
+        vertexShader: `
+            varying vec3 vWorldPos;
+            void main() {
+                vec4 wp = modelMatrix * vec4(position, 1.0);
+                vWorldPos = wp.xyz;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `,
+        fragmentShader: `
+            uniform sampler2D map;
+            uniform float tileW, tileL, offX, offY, groutFX, groutFY;
+            uniform vec3 groutCol;
+            varying vec3 vWorldPos;
+            void main() {
+                float col = vWorldPos.x / tileW + offX;
+                float row = vWorldPos.z / tileL + offY;
+                float tileRow = floor(row);
+                // วางสลับ: แถวคี่เลื่อน U ไป 0.5
+                float bondOff = mod(abs(tileRow), 2.0) * 0.5;
+                float u = fract(col + bondOff);
+                float v = fract(row);
+                // Grout lines
+                if (u < groutFX || u > 1.0 - groutFX || v < groutFY || v > 1.0 - groutFY) {
+                    gl_FragColor = vec4(groutCol, 1.0);
+                    return;
+                }
+                // Remap UV ให้รูปเต็มช่องไม่รวม grout
+                float u2 = (u - groutFX) / (1.0 - 2.0 * groutFX);
+                float v2 = (v - groutFY) / (1.0 - 2.0 * groutFY);
+                vec4 c = texture2D(map, vec2(u2, v2));
+                // Lambert แบบง่าย (พื้นหันหน้าขึ้น)
+                float light = 0.55 + 0.45 * max(dot(vec3(0.0, 1.0, 0.0), normalize(vec3(0.4, 1.0, 0.3))), 0.0);
+                gl_FragColor = vec4(c.rgb * light, c.a);
+            }
+        `,
+        side: THREE.DoubleSide,
     });
 }
 
@@ -1593,7 +1655,13 @@ function build3D() {
             }
 
             let tileMaterial;
-            if (baseTexture) {
+            if (tileLayoutMode === 'running_bond' && baseTexture) {
+                // Running bond: ShaderMaterial คำนวณ UV + grout ใน fragment shader
+                tileMaterial = createRunningBondMaterial(
+                    baseTexture, safeW, safeL,
+                    tileOff.x, tileOff.y
+                );
+            } else if (baseTexture) {
                 const texClone = baseTexture.clone();
                 texClone.needsUpdate = true;
                 texClone.wrapS = texClone.wrapT = THREE.RepeatWrapping;
@@ -1781,6 +1849,14 @@ window.clearCellSelection = function() {
     selectedCells.clear();
     updateSelectionHighlight();
 }
+
+window.toggleRunningBond = function() {
+    tileLayoutMode = tileLayoutMode === 'running_bond' ? 'world' : 'running_bond';
+    const btn = document.getElementById('runningBondBtn');
+    if (btn) btn.textContent = tileLayoutMode === 'running_bond' ? 'วางสลับ (Running Bond) ✓' : 'วางสลับ (Running Bond)';
+    buildRoom();
+    recordHistorySnapshot();
+};
 
 window.toggleTileCellMode = function() {
     tileCellMode = !tileCellMode;
