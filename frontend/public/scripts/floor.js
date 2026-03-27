@@ -794,6 +794,8 @@ function buildFreeTileFloor() {
         mesh.userData = { isFreeTile: true, tileId: tp.id };
         freeTileGroup.add(mesh);
     }
+    // อัปเดตราคาทุกครั้งที่ free tiles เปลี่ยน ยกเว้นระหว่างลาก (fire ทุก frame)
+    if (!_ftDragging && typeof updatePriceSummary === 'function') updatePriceSummary();
 }
 
 function fillRoomFreeTiles(patternKey, layout) {
@@ -2828,6 +2830,7 @@ function onPointerUp() {
         _ftDragLastWorld = null;
         controls.enabled = true;
         recordHistorySnapshot();
+        updatePriceSummary(); // อัปเดตราคาหลังปล่อย drag
         return;
     }
     if (isDragPainting) {
