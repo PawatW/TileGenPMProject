@@ -1217,6 +1217,57 @@ function getTileSizeInMeters(tileMeta) {
 }
 
 function calculatePricingSummary() {
+    // ── โหมดวางอิสระ: นับจาก freeTilePlacements แทน grid ──────────────────
+    if (freeTileMode && freeTilePlacements.length > 0) {
+        const patternData = {};
+        let totalAreaSqm = 0;
+
+        for (const tp of freeTilePlacements) {
+            const meta = getTileMetaByKey(tp.patternKey);
+            const { widthM: tw, lengthM: tl } = getTileSizeInMeters(meta);
+            const safeW = (tw > 0 && Number.isFinite(tw)) ? tw : 0.6;
+            const safeL = (tl > 0 && Number.isFinite(tl)) ? tl : 0.6;
+            const tileArea = safeW * safeL;
+            totalAreaSqm += tileArea;
+
+            if (!patternData[tp.patternKey]) {
+                patternData[tp.patternKey] = { meta, tileArea, count: 0 };
+            }
+            patternData[tp.patternKey].count += 1;
+        }
+
+        let totalRawTiles = 0, totalTilesWithWaste = 0, totalBoxCount = 0, totalPrice = 0;
+        const groups = Object.entries(patternData).map(([patternKey, data]) => {
+            const rawTiles = data.count;
+            const tilesWithWaste = rawTiles;
+            const tilesPerBox = Math.max(1, Math.ceil(Number(data.meta?.tilesPerBox) || 1));
+            const pricePerBox = Math.max(0, Number(data.meta?.pricePerBox) || 0);
+            const boxes = tilesWithWaste > 0 ? Math.ceil(tilesWithWaste / tilesPerBox) : 0;
+            const price = boxes * pricePerBox;
+            totalRawTiles += rawTiles;
+            totalTilesWithWaste += tilesWithWaste;
+            totalBoxCount += boxes;
+            totalPrice += price;
+            return { patternKey, area: data.count * data.tileArea, rawTiles, tilesWithWaste, tilesPerBox, pricePerBox, boxes, price };
+        });
+
+        const primaryGroup = groups.find(g => g.patternKey === tilePattern) || groups[0];
+        const primaryMeta = getTileMetaByKey(primaryGroup?.patternKey || tilePattern);
+        const { widthM: pW, lengthM: pL } = getTileSizeInMeters(primaryMeta);
+        return {
+            totalAreaSqm,
+            areaPerTile: Math.max((pW || 0.6) * (pL || 0.6), 0.0001),
+            rawTilesNeeded: totalRawTiles,
+            tilesWithWaste: totalTilesWithWaste,
+            tilesPerBox: primaryGroup?.tilesPerBox || 1,
+            boxCount: totalBoxCount,
+            pricePerBox: primaryGroup?.pricePerBox || 0,
+            totalPrice,
+            groups
+        };
+    }
+
+    // ── โหมดปกติ: คำนวณจาก grid (เดิม) ────────────────────────────────────
     const cw = Math.ceil(gridWidth);
     const ch = Math.ceil(gridHeight);
     const offsetX = (gridWidth * 1) / 2 - 0.5;
