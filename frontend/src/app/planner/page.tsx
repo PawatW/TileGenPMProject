@@ -290,7 +290,16 @@ export default function PlannerPage() {
           <button className="btn-outline" style={{ marginTop: "12px", width: "100%", justifyContent: "center" }} onClick={() => (window as any).fillAllTiles?.()}>
             เทลายนี้ทั้งห้อง (Fill Room)
           </button>
-          
+          <button
+            id="tileCellModeBtn"
+            className="btn-outline"
+            style={{ marginTop: "8px", width: "100%", justifyContent: "center" }}
+            onClick={() => (window as any).toggleTileCellMode?.()}
+          >
+            1 Cell = 1 แผ่น
+          </button>
+          <p className="hint" style={{ marginTop: "4px" }}>เปิดเพื่อให้แต่ละช่องตารางแสดงกระเบื้อง 1 แผ่นพอดี</p>
+
           <div style={{ marginTop: "16px", padding: "12px", backgroundColor: "var(--bg-secondary)", borderRadius: "8px" }}
             onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
             <span className="field-label" style={{ marginBottom: "8px", display: "block" }}>เพิ่มลายกระเบื้องใหม่</span>

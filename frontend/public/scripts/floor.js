@@ -69,6 +69,7 @@ const WALL_LAYOUT_FULL = 'full';
 const WALL_LAYOUT_CUSTOM = 'custom';
 let wallLayoutPreset = WALL_LAYOUT_OPEN;
 let wallLayoutMode = WALL_LAYOUT_OPEN;
+let tileCellMode = false; // true = 1 grid cell แสดง 1 แผ่นกระเบื้องพอดี
 let pricingSummary = {
     totalAreaSqm: 0,
     areaPerTile: 0,
@@ -266,6 +267,7 @@ function serializeDesignState() {
         wallPattern,
         wallLayoutPreset,
         wallLayoutMode,
+        tileCellMode,
         gridData,
         rotationData,
         flipData,
@@ -293,6 +295,9 @@ function applyDesignState(state) {
 
     if (typeof state.tilePattern === 'string') tilePattern = state.tilePattern;
     if (typeof state.wallPattern === 'string') wallPattern = state.wallPattern;
+    tileCellMode = !!state.tileCellMode;
+    const tcmBtn = document.getElementById('tileCellModeBtn');
+    if (tcmBtn) tcmBtn.textContent = tileCellMode ? '1 Cell = 1 แผ่น ✓' : '1 Cell = 1 แผ่น';
     wallLayoutPreset = state.wallLayoutPreset === WALL_LAYOUT_FULL ? WALL_LAYOUT_FULL : WALL_LAYOUT_OPEN;
     if ([WALL_LAYOUT_OPEN, WALL_LAYOUT_FULL, WALL_LAYOUT_CUSTOM].includes(state.wallLayoutMode)) {
         wallLayoutMode = state.wallLayoutMode;
@@ -1525,41 +1530,62 @@ function build3D() {
             // Custom Plane Geometry for fractional edge cells
             const cGeometry = new THREE.PlaneGeometry(fracX, fracY);
 
-            // World-space UV — tiles align seamlessly across all cells, no 1 m block seams
+            // UV generation
             {
                 const positions = cGeometry.attributes.position;
                 const uvs = cGeometry.attributes.uv;
                 for (let i = 0; i < positions.count; i++) {
                     const lx = positions.getX(i);
                     const ly = positions.getY(i);
-                    // After tile.rotation.x = -π/2 : local-Y maps to world -Z
-                    const wx = cx + lx;
-                    const wz = cz - ly;
-                    let u = wx / safeW + tileOff.x;
-                    let v = wz / safeL + tileOff.y;
-                    if (isLargeTile) {
-                        // Global UV transform: rotate/flip the world-space UV axes uniformly
-                        // so all cells of the same large tile transform together seamlessly
-                        if (gt.flip) u = -u;
-                        switch (gt.rotation % 4) {
-                            case 1: { const t = u; u = v; v = -t; break; } // 90° CW
-                            case 2: { u = -u; v = -v; break; }              // 180°
-                            case 3: { const t = u; u = -v; v = t; break; }  // 270° CW
+                    let u, v;
+
+                    if (tileCellMode) {
+                        // ── Cell mode: 1 grid cell = 1 tile ──────────────────────
+                        // Map local PlaneGeometry coords [-fracX/2, +fracX/2] → [0,1]
+                        u = (lx + fracX / 2) / fracX;
+                        v = (ly + fracY / 2) / fracY;
+                        if (cellRotRad !== 0 || doFlip) {
+                            let du = u - 0.5;
+                            let dv = v - 0.5;
+                            if (doFlip) du = -du;
+                            if (cellRotRad !== 0) {
+                                const cos = Math.cos(cellRotRad);
+                                const sin = Math.sin(cellRotRad);
+                                const du2 = du * cos - dv * sin;
+                                const dv2 = du * sin + dv * cos;
+                                du = du2; dv = dv2;
+                            }
+                            u = 0.5 + du;
+                            v = 0.5 + dv;
                         }
-                    } else if (cellRotRad !== 0 || doFlip) {
-                        // Per-cell rotation/flip around the cell's UV centre (small tiles only)
-                        let du = u - cellUCx;
-                        let dv = v - cellUCz;
-                        if (doFlip) du = -du;
-                        if (cellRotRad !== 0) {
-                            const cos = Math.cos(cellRotRad);
-                            const sin = Math.sin(cellRotRad);
-                            const du2 = du * cos - dv * sin;
-                            const dv2 = du * sin + dv * cos;
-                            du = du2; dv = dv2;
+                    } else {
+                        // ── World mode: tile tiled by physical size (original) ───
+                        // After tile.rotation.x = -π/2 : local-Y maps to world -Z
+                        const wx = cx + lx;
+                        const wz = cz - ly;
+                        u = wx / safeW + tileOff.x;
+                        v = wz / safeL + tileOff.y;
+                        if (isLargeTile) {
+                            if (gt.flip) u = -u;
+                            switch (gt.rotation % 4) {
+                                case 1: { const t = u; u = v; v = -t; break; }
+                                case 2: { u = -u; v = -v; break; }
+                                case 3: { const t = u; u = -v; v = t; break; }
+                            }
+                        } else if (cellRotRad !== 0 || doFlip) {
+                            let du = u - cellUCx;
+                            let dv = v - cellUCz;
+                            if (doFlip) du = -du;
+                            if (cellRotRad !== 0) {
+                                const cos = Math.cos(cellRotRad);
+                                const sin = Math.sin(cellRotRad);
+                                const du2 = du * cos - dv * sin;
+                                const dv2 = du * sin + dv * cos;
+                                du = du2; dv = dv2;
+                            }
+                            u = cellUCx + du;
+                            v = cellUCz + dv;
                         }
-                        u = cellUCx + du;
-                        v = cellUCz + dv;
                     }
                     uvs.setXY(i, u, v);
                 }
@@ -1755,6 +1781,14 @@ window.clearCellSelection = function() {
     selectedCells.clear();
     updateSelectionHighlight();
 }
+
+window.toggleTileCellMode = function() {
+    tileCellMode = !tileCellMode;
+    const btn = document.getElementById('tileCellModeBtn');
+    if (btn) btn.textContent = tileCellMode ? '1 Cell = 1 แผ่น ✓' : '1 Cell = 1 แผ่น';
+    buildRoom();
+    recordHistorySnapshot();
+};
 
 window.setTileOffsetMode = function(enabled) {
     tileOffsetDragMode = enabled;
