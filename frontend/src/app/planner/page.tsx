@@ -309,6 +309,38 @@ export default function PlannerPage() {
           </button>
           <p className="hint" style={{ marginTop: "4px" }}>วางสลับครึ่งแผ่น (Brick Bond) — เหมาะกับกระเบื้องไม้สี่เหลี่ยมผืนผ้า</p>
 
+          {/* ── Free Tile Mode ─────────────────────── */}
+          <div style={{ marginTop: "12px", padding: "10px", border: "1px solid var(--border)", borderRadius: "8px" }}>
+            <button
+              id="freeTileModeBtn"
+              className="btn-outline"
+              style={{ width: "100%", justifyContent: "center", fontWeight: 600 }}
+              onClick={() => (window as any).toggleFreeTileMode?.()}
+            >
+              วางอิสระ
+            </button>
+            <p className="hint" style={{ marginTop: "4px", marginBottom: "8px" }}>
+              เปิดโหมดนี้เพื่อวางกระเบื้องแต่ละแผ่นได้อย่างอิสระ ขนาดตามจริง
+            </p>
+            <div style={{ display: "flex", gap: "6px" }}>
+              <button className="btn-outline" style={{ flex: 1, fontSize: "11px", justifyContent: "center" }}
+                onClick={() => (window as any).fillFreeTiles?.('straight')}>
+                เติมห้อง (ตรง)
+              </button>
+              <button className="btn-outline" style={{ flex: 1, fontSize: "11px", justifyContent: "center" }}
+                onClick={() => (window as any).fillFreeTilesRunningBond?.()}>
+                เติมห้อง (สลับ)
+              </button>
+            </div>
+            <button className="btn-outline danger" style={{ marginTop: "6px", width: "100%", justifyContent: "center", fontSize: "11px" }}
+              onClick={() => (window as any).clearFreeTiles?.()}>
+              ล้างทั้งหมด
+            </button>
+            <p className="hint" style={{ marginTop: "6px" }}>
+              คลิกพื้น → วางแผ่น &nbsp;|&nbsp; คลิกแผ่น → เลือก &nbsp;|&nbsp; ลาก → เลื่อน &nbsp;|&nbsp; R → หมุน &nbsp;|&nbsp; Del → ลบ
+            </p>
+          </div>
+
           <div style={{ marginTop: "16px", padding: "12px", backgroundColor: "var(--bg-secondary)", borderRadius: "8px" }}
             onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
             <span className="field-label" style={{ marginBottom: "8px", display: "block" }}>เพิ่มลายกระเบื้องใหม่</span>
