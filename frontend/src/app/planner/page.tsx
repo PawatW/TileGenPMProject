@@ -256,7 +256,7 @@ export default function PlannerPage() {
               </button>
             </div>
           )}
-          <p className="hint" style={{ marginTop: "2px" }}>คลิก cell เพื่อเลือก/ยกเลิก (สีส้ม) แล้วกด "ทาสี"</p>
+          <p className="hint" style={{ marginTop: "2px" }}>คลิกเพื่อเลือก/ยกเลิกเป็นกลุ่มตามขนาดกระเบื้อง (ยกเว้นโหมด 1 Cell = 1 แผ่น) แล้วกด "ทาสี"</p>
 
           <div className="toggle-row" style={{ marginTop: "12px", border: "none", padding: 0 }}>
             <span className="toggle-label" style={{ fontSize: "12px" }}>โหมดกระจก (คลิกเพื่อพลิก)</span>

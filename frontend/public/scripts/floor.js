@@ -1772,6 +1772,9 @@ function build3D() {
                             u = 0.5 + du;
                             v = 0.5 + dv;
                         }
+                        // Keep offset controls working in 1-cell mode as well.
+                        u += tileOff.x;
+                        v += tileOff.y;
                     } else {
                         // ── World mode: tile tiled by physical size (original) ───
                         // After tile.rotation.x = -π/2 : local-Y maps to world -Z
@@ -2723,9 +2726,19 @@ function onCanvasClick(event) {
 
             // โหมดเลือก cell: toggle cell in/out of selection
             if (cellSelectMode) {
-                const key = `${clickedGx},${clickedGy}`;
-                if (selectedCells.has(key)) selectedCells.delete(key);
-                else selectedCells.add(key);
+                const clickedKey = `${clickedGx},${clickedGy}`;
+                const clickedPattern = floorTextureData[clickedKey] || tilePattern;
+                const footprint = tileCellMode
+                    ? [{ gx: clickedGx, gy: clickedGy }]
+                    : computeFootprintCells(hit.point.x, hit.point.z, clickedPattern);
+                const targets = footprint.length > 0 ? footprint : [{ gx: clickedGx, gy: clickedGy }];
+                const targetKeys = targets.map(({ gx, gy }) => `${gx},${gy}`);
+                const allSelected = targetKeys.every((key) => selectedCells.has(key));
+
+                targetKeys.forEach((key) => {
+                    if (allSelected) selectedCells.delete(key);
+                    else selectedCells.add(key);
+                });
                 updateSelectionHighlight();
                 return;
             }
