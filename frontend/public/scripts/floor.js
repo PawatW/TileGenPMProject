@@ -46,6 +46,7 @@ let tileDragPaintMode = false;   // drag-to-paint mode
 let isDragPainting = false;
 let dragPaintedCells = new Set(); // track painted cells in current drag
 let cellSelectMode = false;       // click to select/deselect cells
+let cellSelectScope = 'footprint'; // 'single' | 'footprint'
 let selectedCells = new Set();    // "gx,gy" keys of selected cells
 let ignoreNextClick = false;
 let isDraggingFixture = false;
@@ -277,6 +278,7 @@ function serializeDesignState() {
         wallLayoutMode,
         tileCellMode,
         tileLayoutMode,
+        cellSelectScope,
         freeTileMode,
         freeTilePlacements: freeTileMode ? [...freeTilePlacements] : [],
         gridData,
@@ -313,6 +315,7 @@ function applyDesignState(state) {
     tileLayoutMode = state.tileLayoutMode === 'running_bond' ? 'running_bond' : 'world';
     const rbBtn = document.getElementById('runningBondBtn');
     if (rbBtn) rbBtn.textContent = tileLayoutMode === 'running_bond' ? 'วางสลับ (Running Bond) ✓' : 'วางสลับ (Running Bond)';
+    cellSelectScope = state.cellSelectScope === 'single' ? 'single' : 'footprint';
     freeTileMode = !!state.freeTileMode;
     freeTilePlacements = Array.isArray(state.freeTilePlacements) ? state.freeTilePlacements : [];
     _ftSelId = null;
@@ -744,6 +747,10 @@ const hoverGroup = new THREE.Group();
 scene.add(hoverGroup);
 const hoverMaterial = new THREE.MeshBasicMaterial({
     color: 0x3b82f6, transparent: true, opacity: 0.38,
+    depthWrite: false, side: THREE.DoubleSide,
+});
+const cellSelectPreviewMaterial = new THREE.MeshBasicMaterial({
+    color: 0xf59e0b, transparent: true, opacity: 0.28,
     depthWrite: false, side: THREE.DoubleSide,
 });
 
@@ -1995,6 +2002,11 @@ window.setCellSelectMode = function(enabled) {
     clearHoverHighlight();
 }
 
+window.setCellSelectionScope = function(scope) {
+    cellSelectScope = scope === 'single' ? 'single' : 'footprint';
+    clearHoverHighlight();
+}
+
 window.paintSelectedCells = function() {
     if (selectedCells.size === 0) return;
     const targetBrush = (typeof tileBrush !== 'undefined' && tileBrush) || tilePattern;
@@ -2528,9 +2540,25 @@ function getCellWorldInfo(gx, gy) {
     return { cx, cz, fracX, fracY };
 }
 
+function computeCellSelectTargets(wx, wz, hitGx, hitGy, patternKey) {
+    const hitInfo = getCellWorldInfo(hitGx, hitGy);
+    if (cellSelectScope === 'single') {
+        return [{ gx: hitGx, gy: hitGy, ...hitInfo }];
+    }
+    const footprint = computeFootprintCells(wx, wz, patternKey);
+    return footprint.length > 0 ? footprint : [{ gx: hitGx, gy: hitGy, ...hitInfo }];
+}
+
 function updateHoverHighlight(wx, wz, patternKey, hitGx, hitGy) {
     clearHoverHighlight();
-    if (cellSelectMode) return; // ไม่แสดง hover ขณะอยู่ใน select mode
+    if (cellSelectMode) {
+        const cellPattern = floorTextureData[`${hitGx},${hitGy}`] || tilePattern;
+        const cells = computeCellSelectTargets(wx, wz, hitGx, hitGy, cellPattern);
+        for (const { cx, cz, fracX, fracY } of cells) {
+            addHighlightPlane(hoverGroup, cellSelectPreviewMaterial, cx, cz, fracX, fracY, 0.017);
+        }
+        return;
+    }
     let cells;
     if (tilePaintMode === 'footprint') {
         cells = computeFootprintCells(wx, wz, patternKey);
@@ -2728,11 +2756,8 @@ function onCanvasClick(event) {
             if (cellSelectMode) {
                 const clickedKey = `${clickedGx},${clickedGy}`;
                 const clickedPattern = floorTextureData[clickedKey] || tilePattern;
-                const footprint = tileCellMode
-                    ? [{ gx: clickedGx, gy: clickedGy }]
-                    : computeFootprintCells(hit.point.x, hit.point.z, clickedPattern);
-                const targets = footprint.length > 0 ? footprint : [{ gx: clickedGx, gy: clickedGy }];
-                const targetKeys = targets.map(({ gx, gy }) => `${gx},${gy}`);
+                const targets = computeCellSelectTargets(hit.point.x, hit.point.z, clickedGx, clickedGy, clickedPattern);
+                const targetKeys = Array.from(new Set(targets.map(({ gx, gy }) => `${gx},${gy}`)));
                 const allSelected = targetKeys.every((key) => selectedCells.has(key));
 
                 targetKeys.forEach((key) => {

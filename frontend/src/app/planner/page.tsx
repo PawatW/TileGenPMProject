@@ -19,6 +19,7 @@ export default function PlannerPage() {
   const [paintMode, setPaintMode] = useState<"cell" | "footprint">("footprint");
   const [dragPaint, setDragPaint] = useState(false);
   const [cellSelect, setCellSelect] = useState(false);
+  const [cellSelectScope, setCellSelectScope] = useState<"single" | "footprint">("footprint");
   const [selectedEl, setSelectedEl] = useState<SelectedEl>(null);
 
   useEffect(() => {
@@ -239,24 +240,51 @@ export default function PlannerPage() {
                 const v = (e.target as HTMLInputElement).checked;
                 setCellSelect(v);
                 (window as any).setCellSelectMode?.(v);
+                if (v) (window as any).setCellSelectionScope?.(cellSelectScope);
                 if (v && dragPaint) { setDragPaint(false); (window as any).setTileDragPaintMode?.(false); }
               }} />
               <span className="switch-track"></span>
             </label>
           </div>
           {cellSelect && (
-            <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>
-              <button className="btn-outline" style={{ flex: 1, justifyContent: "center", fontSize: "11px" }}
-                onClick={() => (window as any).paintSelectedCells?.()}>
-                ทาสี cell ที่เลือก
-              </button>
-              <button className="btn-outline" style={{ flex: 1, justifyContent: "center", fontSize: "11px" }}
-                onClick={() => (window as any).clearCellSelection?.()}>
-                ล้างการเลือก
-              </button>
-            </div>
+            <>
+              <div className="segmented-control" role="group" aria-label="รูปแบบการเลือก Cell" style={{ marginTop: "6px", marginBottom: "0" }}>
+                <button
+                  type="button"
+                  className={`segmented-btn ${cellSelectScope === "footprint" ? "active" : ""}`}
+                  aria-pressed={cellSelectScope === "footprint"}
+                  onClick={() => {
+                    setCellSelectScope("footprint");
+                    (window as any).setCellSelectionScope?.("footprint");
+                  }}
+                >
+                  ตามขนาดกระเบื้อง
+                </button>
+                <button
+                  type="button"
+                  className={`segmented-btn ${cellSelectScope === "single" ? "active" : ""}`}
+                  aria-pressed={cellSelectScope === "single"}
+                  onClick={() => {
+                    setCellSelectScope("single");
+                    (window as any).setCellSelectionScope?.("single");
+                  }}
+                >
+                  ทีละ Cell
+                </button>
+              </div>
+              <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>
+                <button className="btn-outline" style={{ flex: 1, justifyContent: "center", fontSize: "11px" }}
+                  onClick={() => (window as any).paintSelectedCells?.()}>
+                  ทาสี cell ที่เลือก
+                </button>
+                <button className="btn-outline" style={{ flex: 1, justifyContent: "center", fontSize: "11px" }}
+                  onClick={() => (window as any).clearCellSelection?.()}>
+                  ล้างการเลือก
+                </button>
+              </div>
+            </>
           )}
-          <p className="hint" style={{ marginTop: "2px" }}>คลิกเพื่อเลือก/ยกเลิกเป็นกลุ่มตามขนาดกระเบื้อง (ยกเว้นโหมด 1 Cell = 1 แผ่น) แล้วกด "ทาสี"</p>
+          <p className="hint" style={{ marginTop: "2px" }}>เลือกโหมดได้ทั้งแบบตามขนาดกระเบื้องหรือทีละ Cell และจะมี preview พื้นที่ก่อนคลิก</p>
 
           <div className="toggle-row" style={{ marginTop: "12px", border: "none", padding: 0 }}>
             <span className="toggle-label" style={{ fontSize: "12px" }}>โหมดกระจก (คลิกเพื่อพลิก)</span>
