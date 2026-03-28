@@ -64,6 +64,7 @@ let dragMutatedState = false;
 // Tile offset drag state
 let tileOffsets = {};             // { [patternKey]: { x, y } } — UV offset in tile units
 let tileCellOffsets = {};         // { ["x,y"]: { x, y } } — UV offset per selected cell
+let tileUnitOverrides = {};       // { [unitKey]: { gridPatternKey, tileI, tileJ, patternKey, offsetX, offsetY } }
 let tileGlobalTransforms = {};    // { [patternKey]: { rotation: 0|1|2|3, flip: bool } } — for large tiles >1 m
 let tileOffsetDragMode = false;   // โหมดลากขยับตำแหน่งกระเบื้อง
 let isDraggingTileOffset = false;
@@ -73,6 +74,10 @@ let isDraggingSelectedCellOffsets = false;
 let selectedCellOffsetDragStartPos = null;
 let selectedCellOffsetDragStartOffsets = {};
 let selectedCellOffsetDragKeys = [];
+let isDraggingSelectedTileUnits = false;
+let selectedTileUnitDragStartPos = null;
+let selectedTileUnitDragStartOffsets = {};
+let selectedTileUnitDragKeys = [];
 const WALL_LAYOUT_OPEN = 'open';
 const WALL_LAYOUT_FULL = 'full';
 const WALL_LAYOUT_CUSTOM = 'custom';
@@ -293,6 +298,7 @@ function serializeDesignState() {
         removedWalls: Array.from(removedWalls),
         tileOffsets,
         tileCellOffsets,
+        tileUnitOverrides,
         tileGlobalTransforms,
         fixtures
     };
@@ -383,6 +389,11 @@ function applyDesignState(state) {
     } else {
         tileCellOffsets = {};
     }
+    if (state.tileUnitOverrides && typeof state.tileUnitOverrides === 'object') {
+        tileUnitOverrides = { ...state.tileUnitOverrides };
+    } else {
+        tileUnitOverrides = {};
+    }
     if (state.tileGlobalTransforms && typeof state.tileGlobalTransforms === 'object') {
         tileGlobalTransforms = { ...state.tileGlobalTransforms };
     } else {
@@ -440,6 +451,10 @@ function applyDesignState(state) {
     renderFixtureSwatches();
     selectedCells.clear();
     selectedTileUnits.clear();
+    isDraggingSelectedTileUnits = false;
+    selectedTileUnitDragStartPos = null;
+    selectedTileUnitDragStartOffsets = {};
+    selectedTileUnitDragKeys = [];
     clearHoverHighlight();
     updateSelectionHighlight();
     renderUI();
@@ -876,9 +891,14 @@ window.resetGrid = function() {
     wallTextureData = {};
     tileOffsets = {};
     tileCellOffsets = {};
+    tileUnitOverrides = {};
     tileGlobalTransforms = {};
     selectedCells.clear();
     selectedTileUnits.clear();
+    isDraggingSelectedTileUnits = false;
+    selectedTileUnitDragStartPos = null;
+    selectedTileUnitDragStartOffsets = {};
+    selectedTileUnitDragKeys = [];
     clearHoverHighlight();
     updateSelectionHighlight();
     removedWalls.clear();
@@ -1707,6 +1727,9 @@ function build3D() {
     while(roomGroup.children.length > 0){
         roomGroup.remove(roomGroup.children[0]);
     }
+    if (selectedTileUnits.size > 0) {
+        rebuildSelectedCellsFromTileUnits();
+    }
     buildFreeTileFloor(); // re-render free tiles (clears if freeTileMode=false)
 
     const tileMeta = getTileMetaByKey(tilePattern);
@@ -1870,6 +1893,73 @@ function build3D() {
         }
     }
 
+    // Overlay: วาด unit ที่ override รายแผ่น (ตามขนาดกระเบื้อง) ทับบน cell พื้นฐาน
+    Object.entries(tileUnitOverrides).forEach(([unitKey, unit]) => {
+        if (!unit || typeof unit !== 'object') return;
+        const gridPatternKey = unit.gridPatternKey || unit.patternKey || tilePattern;
+        const renderPatternKey = unit.patternKey || gridPatternKey;
+        const tileI = Number(unit.tileI);
+        const tileJ = Number(unit.tileJ);
+        if (!Number.isFinite(tileI) || !Number.isFinite(tileJ)) return;
+
+        const unitSeg = computeUnitSegmentsFromSpec(gridPatternKey, tileI, tileJ);
+        if (unitSeg.segments.length === 0) return;
+
+        const renderMeta = getTileMetaByKey(renderPatternKey);
+        const renderTexture = tileTextures[renderPatternKey] || tileTextures[renderMeta?.key || ''];
+        const { widthM: renderW, lengthM: renderL } = getTileSizeInMeters(renderMeta);
+        const safeW = (renderW > 0 && Number.isFinite(renderW)) ? renderW : 0.6;
+        const safeL = (renderL > 0 && Number.isFinite(renderL)) ? renderL : 0.6;
+        const patternOff = tileOffsets[renderPatternKey] || { x: 0, y: 0 };
+        const totalOffX = (patternOff.x || 0) + (Number(unit.offsetX) || 0);
+        const totalOffY = (patternOff.y || 0) + (Number(unit.offsetY) || 0);
+
+        let overlayMaterial;
+        if (tileLayoutMode === 'running_bond' && renderTexture) {
+            overlayMaterial = createRunningBondMaterial(renderTexture, safeW, safeL, totalOffX, totalOffY);
+        } else if (renderTexture) {
+            const texClone = renderTexture.clone();
+            texClone.needsUpdate = true;
+            texClone.wrapS = texClone.wrapT = THREE.RepeatWrapping;
+            texClone.repeat.set(1, 1);
+            overlayMaterial = new THREE.MeshStandardMaterial({ map: texClone, side: THREE.DoubleSide });
+        } else {
+            overlayMaterial = new THREE.MeshStandardMaterial({ color: 0xe5e5e5, side: THREE.DoubleSide });
+        }
+
+        unitSeg.segments.forEach((seg) => {
+            const geo = new THREE.PlaneGeometry(seg.fracX, seg.fracY);
+            const positions = geo.attributes.position;
+            const uvs = geo.attributes.uv;
+            for (let i = 0; i < positions.count; i++) {
+                const lx = positions.getX(i);
+                const ly = positions.getY(i);
+                const wx = seg.cx + lx;
+                const wz = seg.cz - ly;
+                const u = wx / safeW + totalOffX;
+                const v = wz / safeL + totalOffY;
+                uvs.setXY(i, u, v);
+            }
+            uvs.needsUpdate = true;
+
+            const mesh = new THREE.Mesh(geo, overlayMaterial);
+            mesh.rotation.x = -Math.PI / 2;
+            mesh.position.set(seg.cx, 0.012, seg.cz);
+            mesh.renderOrder = 2;
+            mesh.userData = {
+                isTile: true,
+                x: seg.gx,
+                y: seg.gy,
+                fracX: seg.fracX,
+                fracY: seg.fracY,
+                unitKey,
+                unitPattern: renderPatternKey,
+                unitGridPattern: gridPatternKey,
+            };
+            roomGroup.add(mesh);
+        });
+    });
+
     // Ghost walls: แสดง outline ของกำแพงที่ถูกลบ เฉพาะเวลา wallDeleteMode เปิดอยู่
     if (wallDeleteMode && removedWalls.size > 0) {
         for (const wallKey of removedWalls) {
@@ -2005,6 +2095,10 @@ window.setCellSelectMode = function(enabled) {
         selectedCellOffsetDragStartPos = null;
         selectedCellOffsetDragStartOffsets = {};
         selectedCellOffsetDragKeys = [];
+        isDraggingSelectedTileUnits = false;
+        selectedTileUnitDragStartPos = null;
+        selectedTileUnitDragStartOffsets = {};
+        selectedTileUnitDragKeys = [];
         selectedCells.clear();
         selectedTileUnits.clear();
         updateSelectionHighlight();
@@ -2014,6 +2108,10 @@ window.setCellSelectMode = function(enabled) {
 
 window.setCellSelectionScope = function(scope) {
     cellSelectScope = scope === 'single' ? 'single' : 'footprint';
+    isDraggingSelectedTileUnits = false;
+    selectedTileUnitDragStartPos = null;
+    selectedTileUnitDragStartOffsets = {};
+    selectedTileUnitDragKeys = [];
     selectedCells.clear();
     selectedTileUnits.clear();
     updateSelectionHighlight();
@@ -2022,6 +2120,7 @@ window.setCellSelectionScope = function(scope) {
 
 window.paintSelectedCells = function() {
     if (selectedCells.size === 0) return;
+    removeTileUnitOverridesByCellKeys(Array.from(selectedCells));
     const targetBrush = (typeof tileBrush !== 'undefined' && tileBrush) || tilePattern;
     for (const key of selectedCells) {
         const [gx, gy] = key.split(',').map(Number);
@@ -2092,7 +2191,7 @@ window.toggleTileCellMode = function() {
 window.setTileOffsetMode = function(enabled) {
     tileOffsetDragMode = enabled;
     renderer.domElement.style.cursor = enabled ? 'grab' : 'default';
-    if (!enabled && (isDraggingTileOffset || isDraggingSelectedCellOffsets)) {
+    if (!enabled && (isDraggingTileOffset || isDraggingSelectedCellOffsets || isDraggingSelectedTileUnits)) {
         isDraggingTileOffset = false;
         tileOffsetDragPattern = null;
         tileOffsetDragLastPos = null;
@@ -2100,6 +2199,10 @@ window.setTileOffsetMode = function(enabled) {
         selectedCellOffsetDragStartPos = null;
         selectedCellOffsetDragStartOffsets = {};
         selectedCellOffsetDragKeys = [];
+        isDraggingSelectedTileUnits = false;
+        selectedTileUnitDragStartPos = null;
+        selectedTileUnitDragStartOffsets = {};
+        selectedTileUnitDragKeys = [];
         controls.enabled = true;
     }
 }
@@ -2328,6 +2431,10 @@ function setTilePattern(patternKey) {
         tilePattern = patternKey;
         floorTextureData = {};
         tileCellOffsets = {};
+        tileUnitOverrides = {};
+        selectedTileUnits.clear();
+        selectedCells.clear();
+        updateSelectionHighlight();
         build3D();
         recordHistorySnapshot();
     }
@@ -2555,19 +2662,17 @@ function getCellWorldInfo(gx, gy) {
     return { cx, cz, fracX, fracY };
 }
 
-function computeTileSelectionUnit(wx, wz, patternKey, fallbackGx, fallbackGy) {
-    const meta = getTileMetaByKey(patternKey);
+function computeUnitSegmentsFromSpec(gridPatternKey, tileI, tileJ) {
+    const meta = getTileMetaByKey(gridPatternKey);
     const { widthM, lengthM } = getTileSizeInMeters(meta);
     const safeW = (widthM > 0 && Number.isFinite(widthM)) ? widthM : 0.6;
     const safeL = (lengthM > 0 && Number.isFinite(lengthM)) ? lengthM : 0.6;
-    const tileOff = tileOffsets[patternKey] || { x: 0, y: 0 };
+    const tileOff = tileOffsets[gridPatternKey] || { x: 0, y: 0 };
 
-    const ti = Math.floor(wx / safeW + tileOff.x);
-    const tj = Math.floor(wz / safeL + tileOff.y);
-    const tileX0 = (ti - tileOff.x) * safeW;
-    const tileX1 = (ti + 1 - tileOff.x) * safeW;
-    const tileZ0 = (tj - tileOff.y) * safeL;
-    const tileZ1 = (tj + 1 - tileOff.y) * safeL;
+    const tileX0 = (tileI - tileOff.x) * safeW;
+    const tileX1 = (tileI + 1 - tileOff.x) * safeW;
+    const tileZ0 = (tileJ - tileOff.y) * safeL;
+    const tileZ1 = (tileJ + 1 - tileOff.y) * safeL;
 
     const cw = Math.ceil(gridWidth);
     const ch = Math.ceil(gridHeight);
@@ -2598,6 +2703,8 @@ function computeTileSelectionUnit(wx, wz, patternKey, fallbackGx, fallbackGy) {
 
             if (segW > 1e-9 && segL > 1e-9) {
                 segments.push({
+                    gx,
+                    gy,
                     cx: (ix0 + ix1) / 2,
                     cz: (iz0 + iz1) / 2,
                     fracX: segW,
@@ -2608,19 +2715,51 @@ function computeTileSelectionUnit(wx, wz, patternKey, fallbackGx, fallbackGy) {
         }
     }
 
-    if (segments.length === 0) {
+    return {
+        safeW,
+        safeL,
+        segments,
+        cellKeys: Array.from(cellKeys),
+    };
+}
+
+function computeTileSelectionUnit(wx, wz, patternKey, fallbackGx, fallbackGy) {
+    const meta = getTileMetaByKey(patternKey);
+    const { widthM, lengthM } = getTileSizeInMeters(meta);
+    const safeW = (widthM > 0 && Number.isFinite(widthM)) ? widthM : 0.6;
+    const safeL = (lengthM > 0 && Number.isFinite(lengthM)) ? lengthM : 0.6;
+    const tileOff = tileOffsets[patternKey] || { x: 0, y: 0 };
+
+    const ti = Math.floor(wx / safeW + tileOff.x);
+    const tj = Math.floor(wz / safeL + tileOff.y);
+    const unitKey = `${patternKey}|${ti},${tj}`;
+    const unitSegments = computeUnitSegmentsFromSpec(patternKey, ti, tj);
+
+    if (unitSegments.segments.length === 0) {
         const fallback = getCellWorldInfo(fallbackGx, fallbackGy);
         return {
             unitKey: `cell:${fallbackGx},${fallbackGy}`,
+            gridPatternKey: patternKey,
+            patternKey,
+            tileI: ti,
+            tileJ: tj,
+            safeW,
+            safeL,
             segments: [fallback],
             cellKeys: [`${fallbackGx},${fallbackGy}`],
         };
     }
 
     return {
-        unitKey: `${patternKey}|${ti},${tj}`,
-        segments,
-        cellKeys: Array.from(cellKeys),
+        unitKey,
+        gridPatternKey: patternKey,
+        patternKey,
+        tileI: ti,
+        tileJ: tj,
+        safeW: unitSegments.safeW,
+        safeL: unitSegments.safeL,
+        segments: unitSegments.segments,
+        cellKeys: unitSegments.cellKeys,
     };
 }
 
@@ -2638,17 +2777,87 @@ function getCellSelectTargetUnit(wx, wz, hitGx, hitGy, patternKey) {
 
 function rebuildSelectedCellsFromTileUnits() {
     selectedCells.clear();
-    for (const unit of selectedTileUnits.values()) {
-        for (const cellKey of unit.cellKeys) {
+    const nextUnits = new Map();
+    for (const [unitKey, unit] of selectedTileUnits.entries()) {
+        if (!unit || typeof unit !== 'object') continue;
+        if (typeof unit.gridPatternKey !== 'string' || !Number.isFinite(unit.tileI) || !Number.isFinite(unit.tileJ)) continue;
+        const seg = computeUnitSegmentsFromSpec(unit.gridPatternKey, unit.tileI, unit.tileJ);
+        const nextUnit = {
+            ...unit,
+            safeW: seg.safeW,
+            safeL: seg.safeL,
+            segments: seg.segments,
+            cellKeys: seg.cellKeys,
+        };
+        nextUnits.set(unitKey, nextUnit);
+        for (const cellKey of nextUnit.cellKeys) {
             selectedCells.add(cellKey);
         }
     }
+    selectedTileUnits = nextUnits;
 }
 
-function updateHoverHighlight(wx, wz, patternKey, hitGx, hitGy) {
+function ensureTileUnitOverride(unit, patternKey) {
+    const fallbackPattern = patternKey || unit.patternKey || unit.gridPatternKey || tilePattern;
+    const existing = tileUnitOverrides[unit.unitKey];
+    if (existing) {
+        existing.patternKey = fallbackPattern;
+        if (!Number.isFinite(existing.offsetX)) existing.offsetX = 0;
+        if (!Number.isFinite(existing.offsetY)) existing.offsetY = 0;
+        return existing;
+    }
+
+    const created = {
+        gridPatternKey: unit.gridPatternKey || fallbackPattern,
+        tileI: Number(unit.tileI) || 0,
+        tileJ: Number(unit.tileJ) || 0,
+        patternKey: fallbackPattern,
+        offsetX: 0,
+        offsetY: 0,
+    };
+    tileUnitOverrides[unit.unitKey] = created;
+    return created;
+}
+
+function removeTileUnitOverridesByCellKeys(cellKeys) {
+    if (!cellKeys || cellKeys.length === 0) return;
+    const targetSet = new Set(cellKeys);
+    let changed = false;
+    Object.entries(tileUnitOverrides).forEach(([unitKey, unit]) => {
+        if (!unit || typeof unit !== 'object') return;
+        const gridPatternKey = unit.gridPatternKey || unit.patternKey || tilePattern;
+        const tileI = Number(unit.tileI);
+        const tileJ = Number(unit.tileJ);
+        if (!Number.isFinite(tileI) || !Number.isFinite(tileJ)) return;
+        const seg = computeUnitSegmentsFromSpec(gridPatternKey, tileI, tileJ);
+        const intersectsTarget = seg.cellKeys.some((key) => targetSet.has(key));
+        if (!intersectsTarget) return;
+        delete tileUnitOverrides[unitKey];
+        selectedTileUnits.delete(unitKey);
+        changed = true;
+    });
+    if (changed) rebuildSelectedCellsFromTileUnits();
+}
+
+function applyTileUnitPaintOverride(unit, patternKey) {
+    const targetPattern = patternKey || tilePattern;
+    const override = ensureTileUnitOverride(unit, targetPattern);
+    override.patternKey = targetPattern;
+    override.offsetX = 0;
+    override.offsetY = 0;
+    unit.cellKeys.forEach((cellKey) => {
+        const [gx, gy] = cellKey.split(',').map(Number);
+        if (!Number.isFinite(gx) || !Number.isFinite(gy)) return;
+        delete tileCellOffsets[cellKey];
+        if (rotationData[gx]?.[gy] !== undefined) rotationData[gx][gy] = 0;
+        if (flipData[gx]?.[gy] !== undefined) flipData[gx][gy] = 0;
+    });
+}
+
+function updateHoverHighlight(wx, wz, patternKey, hitGx, hitGy, selectPatternKey) {
     clearHoverHighlight();
     if (cellSelectMode) {
-        const cellPattern = floorTextureData[`${hitGx},${hitGy}`] || tilePattern;
+        const cellPattern = selectPatternKey || floorTextureData[`${hitGx},${hitGy}`] || tilePattern;
         const targetUnit = getCellSelectTargetUnit(wx, wz, hitGx, hitGy, cellPattern);
         for (const { cx, cz, fracX, fracY } of targetUnit.segments) {
             addHighlightPlane(hoverGroup, cellSelectPreviewMaterial, cx, cz, fracX, fracY, 0.017);
@@ -2657,7 +2866,8 @@ function updateHoverHighlight(wx, wz, patternKey, hitGx, hitGy) {
     }
     let cells;
     if (tilePaintMode === 'footprint') {
-        cells = computeFootprintCells(wx, wz, patternKey);
+        const paintUnit = computeTileSelectionUnit(wx, wz, patternKey, hitGx, hitGy);
+        cells = paintUnit.segments;
     } else {
         const info = getCellWorldInfo(hitGx, hitGy);
         cells = [info];
@@ -2758,7 +2968,34 @@ function onPointerDown(event) {
             const hitCellKey = `${data.x},${data.y}`;
             const worldPos = new THREE.Vector3();
             if (raycaster.ray.intersectPlane(floorIntersectPlane, worldPos)) {
-                if (cellSelectMode && selectedCells.size > 0) {
+                if (cellSelectMode && (selectedCells.size > 0 || selectedTileUnits.size > 0)) {
+                    if (cellSelectScope === 'footprint' && selectedTileUnits.size > 0) {
+                        const hitUnitPattern = data.unitGridPattern || data.unitPattern || floorTextureData[hitCellKey] || tilePattern;
+                        const hitUnit = (data.unitKey && selectedTileUnits.get(data.unitKey))
+                            || getCellSelectTargetUnit(tileHit.point.x, tileHit.point.z, data.x, data.y, hitUnitPattern);
+                        if (!hitUnit || !selectedTileUnits.has(hitUnit.unitKey)) return;
+
+                        selectedTileUnitDragKeys = Array.from(selectedTileUnits.keys());
+                        if (selectedTileUnitDragKeys.length === 0) return;
+
+                        selectedTileUnitDragStartPos = worldPos.clone();
+                        selectedTileUnitDragStartOffsets = {};
+                        selectedTileUnitDragKeys.forEach((unitKey) => {
+                            const base = tileUnitOverrides[unitKey];
+                            selectedTileUnitDragStartOffsets[unitKey] = {
+                                x: Number(base?.offsetX) || 0,
+                                y: Number(base?.offsetY) || 0,
+                            };
+                        });
+
+                        isDraggingSelectedTileUnits = true;
+                        dragMutatedState = false;
+                        ignoreNextClick = true;
+                        controls.enabled = false;
+                        renderer.domElement.style.cursor = 'grabbing';
+                        return;
+                    }
+
                     if (!selectedCells.has(hitCellKey)) return;
 
                     selectedCellOffsetDragKeys = Array.from(selectedCells).filter((key) => {
@@ -2782,7 +3019,7 @@ function onPointerDown(event) {
                     return;
                 }
 
-                tileOffsetDragPattern = floorTextureData[hitCellKey] || tilePattern;
+                tileOffsetDragPattern = data.unitPattern || floorTextureData[hitCellKey] || tilePattern;
                 tileOffsetDragLastPos = worldPos.clone();
                 isDraggingTileOffset = true;
                 dragMutatedState = false;
@@ -2861,7 +3098,7 @@ function onCanvasClick(event) {
             // โหมดเลือก cell: toggle cell in/out of selection
             if (cellSelectMode) {
                 const clickedKey = `${clickedGx},${clickedGy}`;
-                const clickedPattern = floorTextureData[clickedKey] || tilePattern;
+                const clickedPattern = data.unitGridPattern || data.unitPattern || floorTextureData[clickedKey] || tilePattern;
 
                 if (cellSelectScope === 'single') {
                     selectedTileUnits.clear();
@@ -2882,7 +3119,7 @@ function onCanvasClick(event) {
             }
 
             const targetBrush = tileBrush || tilePattern;
-            const currentPattern = floorTextureData[`${clickedGx},${clickedGy}`] || tilePattern;
+            const currentPattern = data.unitPattern || floorTextureData[`${clickedGx},${clickedGy}`] || tilePattern;
 
             if (tileFlipMode) {
                 // โหมดกระจก: สลับ flip เฉพาะ cell ที่คลิก
@@ -2893,15 +3130,10 @@ function onCanvasClick(event) {
             } else {
                 // วางลายใหม่
                 if (tilePaintMode === 'footprint') {
-                    const footprint = computeFootprintCells(hit.point.x, hit.point.z, targetBrush);
-                    const targets = footprint.length > 0 ? footprint : [{ gx: clickedGx, gy: clickedGy }];
-                    for (const { gx, gy } of targets) {
-                        floorTextureData[`${gx},${gy}`] = targetBrush;
-                        delete tileCellOffsets[`${gx},${gy}`];
-                        rotationData[gx][gy] = 0;
-                        flipData[gx][gy] = 0;
-                    }
+                    const paintUnit = computeTileSelectionUnit(hit.point.x, hit.point.z, targetBrush, clickedGx, clickedGy);
+                    applyTileUnitPaintOverride(paintUnit, targetBrush);
                 } else {
+                    removeTileUnitOverridesByCellKeys([`${clickedGx},${clickedGy}`]);
                     floorTextureData[`${clickedGx},${clickedGy}`] = targetBrush;
                     delete tileCellOffsets[`${clickedGx},${clickedGy}`];
                     rotationData[clickedGx][clickedGy] = 0;
@@ -2915,7 +3147,7 @@ function onCanvasClick(event) {
             // Dispatch selection event for inspector panel
             document.dispatchEvent(new CustomEvent('pmElementSelected', { detail: {
                 type: 'tile', x: clickedGx, y: clickedGy,
-                patternKey: floorTextureData[`${clickedGx},${clickedGy}`] || tilePattern,
+                patternKey: data.unitPattern || floorTextureData[`${clickedGx},${clickedGy}`] || tilePattern,
                 rotation: rotationData[clickedGx][clickedGy] || 0,
                 flip: !!(flipData[clickedGx][clickedGy])
             }}));
@@ -2971,6 +3203,50 @@ function onPointerMove(event) {
                 tp.z = Math.round(rawZ / FT_SNAP) * FT_SNAP;
                 _ftDragLastWorld = wp.clone();
                 buildFreeTileFloor();
+            }
+        }
+        return;
+    }
+
+    // ลากขยับตำแหน่งเฉพาะ tile units ที่เลือก (โหมดตามขนาดกระเบื้อง)
+    if (isDraggingSelectedTileUnits && (event.buttons & 1) !== 0) {
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        const worldPos = new THREE.Vector3();
+        if (raycaster.ray.intersectPlane(floorIntersectPlane, worldPos) && selectedTileUnitDragStartPos) {
+            const dx = worldPos.x - selectedTileUnitDragStartPos.x;
+            const dz = worldPos.z - selectedTileUnitDragStartPos.z;
+            let hasChange = false;
+
+            for (const unitKey of selectedTileUnitDragKeys) {
+                const unit = selectedTileUnits.get(unitKey);
+                if (!unit) continue;
+                const safeW = (Number(unit.safeW) > 0 && Number.isFinite(Number(unit.safeW))) ? Number(unit.safeW) : 0.6;
+                const safeL = (Number(unit.safeL) > 0 && Number.isFinite(Number(unit.safeL))) ? Number(unit.safeL) : 0.6;
+                const snapStepMeters = Math.max(safeW, safeL) * 0.25;
+                const safeStep = snapStepMeters > 1e-9 ? snapStepMeters : 0.15;
+
+                const snapDx = Math.round(dx / safeStep) * safeStep;
+                const snapDz = Math.round(dz / safeStep) * safeStep;
+                const start = selectedTileUnitDragStartOffsets[unitKey] || { x: 0, y: 0 };
+                const nextX = (start.x || 0) - (snapDx / safeW);
+                const nextY = (start.y || 0) - (snapDz / safeL);
+
+                const override = ensureTileUnitOverride(unit, unit.patternKey || unit.gridPatternKey || tilePattern);
+                const prevX = Number(override.offsetX) || 0;
+                const prevY = Number(override.offsetY) || 0;
+                if (Math.abs(prevX - nextX) > 1e-9 || Math.abs(prevY - nextY) > 1e-9) {
+                    override.offsetX = nextX;
+                    override.offsetY = nextY;
+                    hasChange = true;
+                }
+            }
+
+            if (hasChange) {
+                dragMutatedState = true;
+                build3D();
             }
         }
         return;
@@ -3058,26 +3334,22 @@ function onPointerMove(event) {
         if (dpTile) {
             const { x: gx, y: gy } = dpTile.object.userData;
             const key = `${gx},${gy}`;
-            if (!dragPaintedCells.has(key)) {
-                dragPaintedCells.add(key);
-                const targetBrush = (typeof tileBrush !== 'undefined' && tileBrush) || tilePattern;
-                if (tilePaintMode === 'footprint') {
-                    const cells = computeFootprintCells(dpTile.point.x, dpTile.point.z, targetBrush);
-                    const targets = cells.length > 0 ? cells : [{ gx, gy }];
-                    for (const { gx: fx, gy: fy } of targets) {
-                        const fk = `${fx},${fy}`;
-                        if (!dragPaintedCells.has(fk)) {
-                            dragPaintedCells.add(fk);
-                            floorTextureData[fk] = targetBrush;
-                            delete tileCellOffsets[fk];
-                            rotationData[fx][fy] = 0; flipData[fx][fy] = 0;
-                        }
-                    }
-                } else {
-                    floorTextureData[key] = targetBrush;
-                    delete tileCellOffsets[key];
-                    rotationData[gx][gy] = 0; flipData[gx][gy] = 0;
+            const targetBrush = (typeof tileBrush !== 'undefined' && tileBrush) || tilePattern;
+            if (tilePaintMode === 'footprint') {
+                const paintUnit = computeTileSelectionUnit(dpTile.point.x, dpTile.point.z, targetBrush, gx, gy);
+                const unitDragKey = `unit:${paintUnit.unitKey}`;
+                if (!dragPaintedCells.has(unitDragKey)) {
+                    dragPaintedCells.add(unitDragKey);
+                    applyTileUnitPaintOverride(paintUnit, targetBrush);
+                    dragMutatedState = true;
+                    build3D();
                 }
+            } else if (!dragPaintedCells.has(key)) {
+                dragPaintedCells.add(key);
+                removeTileUnitOverridesByCellKeys([key]);
+                floorTextureData[key] = targetBrush;
+                delete tileCellOffsets[key];
+                rotationData[gx][gy] = 0; flipData[gx][gy] = 0;
                 dragMutatedState = true;
                 build3D();
             }
@@ -3094,8 +3366,15 @@ function onPointerMove(event) {
         const hoverHits = raycaster.intersectObjects(roomGroup.children, true);
         const hoverTile = hoverHits.find(h => h.object.userData.isTile);
         if (hoverTile) {
-            const { x: hGx, y: hGy } = hoverTile.object.userData;
-            updateHoverHighlight(hoverTile.point.x, hoverTile.point.z, tileBrush || tilePattern, hGx, hGy);
+            const { x: hGx, y: hGy, unitGridPattern, unitPattern } = hoverTile.object.userData;
+            updateHoverHighlight(
+                hoverTile.point.x,
+                hoverTile.point.z,
+                tileBrush || tilePattern,
+                hGx,
+                hGy,
+                unitGridPattern || unitPattern
+            );
         } else {
             clearHoverHighlight();
         }
@@ -3130,6 +3409,17 @@ function onPointerUp() {
         dragPaintedCells.clear();
         dragMutatedState = false;
         controls.enabled = true;
+        return;
+    }
+    if (isDraggingSelectedTileUnits) {
+        if (dragMutatedState) recordHistorySnapshot();
+        isDraggingSelectedTileUnits = false;
+        selectedTileUnitDragStartPos = null;
+        selectedTileUnitDragStartOffsets = {};
+        selectedTileUnitDragKeys = [];
+        dragMutatedState = false;
+        controls.enabled = true;
+        renderer.domElement.style.cursor = tileOffsetDragMode ? 'grab' : 'default';
         return;
     }
     if (isDraggingSelectedCellOffsets) {
