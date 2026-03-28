@@ -201,7 +201,6 @@ export default function PlannerPage() {
                 }}
               >
                 <span>เฉพาะ Cell</span>
-                {paintMode === "cell" && <span style={{ fontSize: "10px", fontWeight: 700 }}>ใช้งาน</span>}
               </button>
               <button
                 type="button"
@@ -214,7 +213,6 @@ export default function PlannerPage() {
                 }}
               >
                 <span>ตามขนาดกระเบื้อง</span>
-                {paintMode === "footprint" && <span style={{ fontSize: "10px", fontWeight: 700 }}>ใช้งาน</span>}
               </button>
             </div>
           </div>
