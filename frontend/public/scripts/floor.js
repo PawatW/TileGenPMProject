@@ -48,6 +48,7 @@ let dragPaintedCells = new Set(); // track painted cells in current drag
 let cellSelectMode = false;       // click to select/deselect cells
 let cellSelectScope = 'footprint'; // 'single' | 'footprint'
 let selectedCells = new Set();    // "gx,gy" keys of selected cells
+let selectedTileUnits = new Map(); // { unitKey: { cellKeys: string[], segments: {cx,cz,fracX,fracY}[] } }
 let ignoreNextClick = false;
 let isDraggingFixture = false;
 let draggingFixture = null;
@@ -437,6 +438,10 @@ function applyDesignState(state) {
     renderWallSwatches();
     renderTileSwatches();
     renderFixtureSwatches();
+    selectedCells.clear();
+    selectedTileUnits.clear();
+    clearHoverHighlight();
+    updateSelectionHighlight();
     renderUI();
     build3D();
 
@@ -872,6 +877,10 @@ window.resetGrid = function() {
     tileOffsets = {};
     tileCellOffsets = {};
     tileGlobalTransforms = {};
+    selectedCells.clear();
+    selectedTileUnits.clear();
+    clearHoverHighlight();
+    updateSelectionHighlight();
     removedWalls.clear();
     placementMode = null;
     while (fixturesGroup.children.length > 0) {
@@ -1997,6 +2006,7 @@ window.setCellSelectMode = function(enabled) {
         selectedCellOffsetDragStartOffsets = {};
         selectedCellOffsetDragKeys = [];
         selectedCells.clear();
+        selectedTileUnits.clear();
         updateSelectionHighlight();
     }
     clearHoverHighlight();
@@ -2004,6 +2014,9 @@ window.setCellSelectMode = function(enabled) {
 
 window.setCellSelectionScope = function(scope) {
     cellSelectScope = scope === 'single' ? 'single' : 'footprint';
+    selectedCells.clear();
+    selectedTileUnits.clear();
+    updateSelectionHighlight();
     clearHoverHighlight();
 }
 
@@ -2018,6 +2031,7 @@ window.paintSelectedCells = function() {
         flipData[gx][gy] = 0;
     }
     selectedCells.clear();
+    selectedTileUnits.clear();
     updateSelectionHighlight();
     build3D();
     recordHistorySnapshot();
@@ -2025,6 +2039,7 @@ window.paintSelectedCells = function() {
 
 window.clearCellSelection = function() {
     selectedCells.clear();
+    selectedTileUnits.clear();
     updateSelectionHighlight();
 }
 
@@ -2540,21 +2555,102 @@ function getCellWorldInfo(gx, gy) {
     return { cx, cz, fracX, fracY };
 }
 
-function computeCellSelectTargets(wx, wz, hitGx, hitGy, patternKey) {
-    const hitInfo = getCellWorldInfo(hitGx, hitGy);
-    if (cellSelectScope === 'single') {
-        return [{ gx: hitGx, gy: hitGy, ...hitInfo }];
+function computeTileSelectionUnit(wx, wz, patternKey, fallbackGx, fallbackGy) {
+    const meta = getTileMetaByKey(patternKey);
+    const { widthM, lengthM } = getTileSizeInMeters(meta);
+    const safeW = (widthM > 0 && Number.isFinite(widthM)) ? widthM : 0.6;
+    const safeL = (lengthM > 0 && Number.isFinite(lengthM)) ? lengthM : 0.6;
+    const tileOff = tileOffsets[patternKey] || { x: 0, y: 0 };
+
+    const ti = Math.floor(wx / safeW + tileOff.x);
+    const tj = Math.floor(wz / safeL + tileOff.y);
+    const tileX0 = (ti - tileOff.x) * safeW;
+    const tileX1 = (ti + 1 - tileOff.x) * safeW;
+    const tileZ0 = (tj - tileOff.y) * safeL;
+    const tileZ1 = (tj + 1 - tileOff.y) * safeL;
+
+    const cw = Math.ceil(gridWidth);
+    const ch = Math.ceil(gridHeight);
+    const offsetX = gridWidth / 2 - 0.5;
+    const offsetZ = gridHeight / 2 - 0.5;
+    const segments = [];
+    const cellKeys = new Set();
+
+    for (let gx = 0; gx < cw; gx++) {
+        for (let gy = 0; gy < ch; gy++) {
+            if (gridData[gx][gy] === 0) continue;
+            const fracX = (gx === cw - 1 && gridWidth % 1 !== 0) ? gridWidth % 1 : 1;
+            const fracY = (gy === ch - 1 && gridHeight % 1 !== 0) ? gridHeight % 1 : 1;
+            const cx = gx - offsetX - (1 - fracX) / 2;
+            const cz = gy - offsetZ - (1 - fracY) / 2;
+
+            const cellX0 = cx - fracX / 2;
+            const cellX1 = cx + fracX / 2;
+            const cellZ0 = cz - fracY / 2;
+            const cellZ1 = cz + fracY / 2;
+
+            const ix0 = Math.max(cellX0, tileX0);
+            const ix1 = Math.min(cellX1, tileX1);
+            const iz0 = Math.max(cellZ0, tileZ0);
+            const iz1 = Math.min(cellZ1, tileZ1);
+            const segW = ix1 - ix0;
+            const segL = iz1 - iz0;
+
+            if (segW > 1e-9 && segL > 1e-9) {
+                segments.push({
+                    cx: (ix0 + ix1) / 2,
+                    cz: (iz0 + iz1) / 2,
+                    fracX: segW,
+                    fracY: segL,
+                });
+                cellKeys.add(`${gx},${gy}`);
+            }
+        }
     }
-    const footprint = computeFootprintCells(wx, wz, patternKey);
-    return footprint.length > 0 ? footprint : [{ gx: hitGx, gy: hitGy, ...hitInfo }];
+
+    if (segments.length === 0) {
+        const fallback = getCellWorldInfo(fallbackGx, fallbackGy);
+        return {
+            unitKey: `cell:${fallbackGx},${fallbackGy}`,
+            segments: [fallback],
+            cellKeys: [`${fallbackGx},${fallbackGy}`],
+        };
+    }
+
+    return {
+        unitKey: `${patternKey}|${ti},${tj}`,
+        segments,
+        cellKeys: Array.from(cellKeys),
+    };
+}
+
+function getCellSelectTargetUnit(wx, wz, hitGx, hitGy, patternKey) {
+    if (cellSelectScope === 'single') {
+        const info = getCellWorldInfo(hitGx, hitGy);
+        return {
+            unitKey: `cell:${hitGx},${hitGy}`,
+            segments: [info],
+            cellKeys: [`${hitGx},${hitGy}`],
+        };
+    }
+    return computeTileSelectionUnit(wx, wz, patternKey, hitGx, hitGy);
+}
+
+function rebuildSelectedCellsFromTileUnits() {
+    selectedCells.clear();
+    for (const unit of selectedTileUnits.values()) {
+        for (const cellKey of unit.cellKeys) {
+            selectedCells.add(cellKey);
+        }
+    }
 }
 
 function updateHoverHighlight(wx, wz, patternKey, hitGx, hitGy) {
     clearHoverHighlight();
     if (cellSelectMode) {
         const cellPattern = floorTextureData[`${hitGx},${hitGy}`] || tilePattern;
-        const cells = computeCellSelectTargets(wx, wz, hitGx, hitGy, cellPattern);
-        for (const { cx, cz, fracX, fracY } of cells) {
+        const targetUnit = getCellSelectTargetUnit(wx, wz, hitGx, hitGy, cellPattern);
+        for (const { cx, cz, fracX, fracY } of targetUnit.segments) {
             addHighlightPlane(hoverGroup, cellSelectPreviewMaterial, cx, cz, fracX, fracY, 0.017);
         }
         return;
@@ -2573,6 +2669,16 @@ function updateHoverHighlight(wx, wz, patternKey, hitGx, hitGy) {
 
 function updateSelectionHighlight() {
     while (selectionGroup.children.length > 0) selectionGroup.remove(selectionGroup.children[0]);
+
+    if (cellSelectMode && cellSelectScope === 'footprint' && selectedTileUnits.size > 0) {
+        for (const unit of selectedTileUnits.values()) {
+            for (const { cx, cz, fracX, fracY } of unit.segments) {
+                addHighlightPlane(selectionGroup, selectionMaterial, cx, cz, fracX, fracY, 0.018);
+            }
+        }
+        return;
+    }
+
     for (const key of selectedCells) {
         const [gx, gy] = key.split(',').map(Number);
         if (gridData[gx]?.[gy] === 0) continue;
@@ -2756,14 +2862,21 @@ function onCanvasClick(event) {
             if (cellSelectMode) {
                 const clickedKey = `${clickedGx},${clickedGy}`;
                 const clickedPattern = floorTextureData[clickedKey] || tilePattern;
-                const targets = computeCellSelectTargets(hit.point.x, hit.point.z, clickedGx, clickedGy, clickedPattern);
-                const targetKeys = Array.from(new Set(targets.map(({ gx, gy }) => `${gx},${gy}`)));
-                const allSelected = targetKeys.every((key) => selectedCells.has(key));
 
-                targetKeys.forEach((key) => {
-                    if (allSelected) selectedCells.delete(key);
-                    else selectedCells.add(key);
-                });
+                if (cellSelectScope === 'single') {
+                    selectedTileUnits.clear();
+                    if (selectedCells.has(clickedKey)) selectedCells.delete(clickedKey);
+                    else selectedCells.add(clickedKey);
+                } else {
+                    const targetUnit = getCellSelectTargetUnit(hit.point.x, hit.point.z, clickedGx, clickedGy, clickedPattern);
+                    if (selectedTileUnits.has(targetUnit.unitKey)) {
+                        selectedTileUnits.delete(targetUnit.unitKey);
+                    } else {
+                        selectedTileUnits.set(targetUnit.unitKey, targetUnit);
+                    }
+                    rebuildSelectedCellsFromTileUnits();
+                }
+
                 updateSelectionHighlight();
                 return;
             }
