@@ -35,6 +35,8 @@ let wallPattern = '8851740036185'; // Default to 'ทรูเนเจอร์
 // Brushes (ลายที่ถูกเลือกอยู่เพื่อรอทา)
 let tileBrush = null;
 let wallBrush = null;
+let tileSinglePaintMode = false; // false = เลือกลายแล้วเททั้งห้องทันที
+let wallSinglePaintMode = false; // false = เลือกลายแล้วเททุกกำแพงทันที
 
 let placementMode = null;
 let wallDeleteMode = false;
@@ -373,6 +375,10 @@ function applyDesignState(state) {
     }
     tileBrush = state.tilePattern;
     wallBrush = state.wallPattern;
+    tileSinglePaintMode = false;
+    wallSinglePaintMode = false;
+    syncTilePerPieceModeButton();
+    syncWallPerPieceModeButton();
 
     removedWalls.clear();
     if (wallLayoutMode === WALL_LAYOUT_OPEN) {
@@ -984,6 +990,24 @@ function renderWallSwatches() {
     });
 }
 
+function syncTilePerPieceModeButton() {
+    const btn = document.getElementById('tilePerPieceModeBtn');
+    if (!btn) return;
+    btn.textContent = tileSinglePaintMode
+        ? 'ทาทีละแผ่น: เปิด ✓'
+        : 'ทาทีละแผ่น: ปิด (เลือกแล้วเททั้งห้อง)';
+    btn.setAttribute('aria-pressed', tileSinglePaintMode ? 'true' : 'false');
+}
+
+function syncWallPerPieceModeButton() {
+    const btn = document.getElementById('wallPerPieceModeBtn');
+    if (!btn) return;
+    btn.textContent = wallSinglePaintMode
+        ? 'ทาทีละผนัง: เปิด ✓'
+        : 'ทาทีละผนัง: ปิด (เลือกแล้วเททุกกำแพง)';
+    btn.setAttribute('aria-pressed', wallSinglePaintMode ? 'true' : 'false');
+}
+
 function renderFixtureSwatches() {
     const swatchContainer = document.getElementById('fixtureSwatches');
     if (!swatchContainer) return;
@@ -1521,8 +1545,9 @@ function solidColorToDataUrl(color) {
     return canvas.toDataURL('image/png');
 }
 
-async function getTileReferenceDataUrl() {
-    const tileMeta = tilePatternList.find(item => item.key === tilePattern);
+async function getTileReferenceDataUrl(patternKey = tilePattern) {
+    const activePattern = patternKey || tilePattern;
+    const tileMeta = tilePatternList.find(item => item.key === activePattern);
     if (!tileMeta) throw new Error('ไม่พบลายกระเบื้องที่เลือก');
 
     if (tileMeta.type === 'canvas') {
@@ -1538,8 +1563,9 @@ async function getTileReferenceDataUrl() {
     throw new Error('ลายกระเบื้องที่เลือกยังไม่รองรับ');
 }
 
-async function getWallReferenceDataUrl() {
-    const wallMeta = wallTextureList.find(item => item.key === wallPattern);
+async function getWallReferenceDataUrl(patternKey = wallPattern) {
+    const activePattern = patternKey || wallPattern;
+    const wallMeta = wallTextureList.find(item => item.key === activePattern);
     if (!wallMeta) throw new Error('ไม่พบพื้นผิวกำแพงที่เลือก');
 
     if (wallMeta.type === 'canvas' && wallMeta.canvas) {
@@ -1564,8 +1590,10 @@ async function testRealImageWithOpenRouter(roomImage) {
     }
 
     setRealModalBusyState(true);
-    const tileMeta = tilePatternList.find(item => item.key === tilePattern);
-    const wallMeta = wallTextureList.find(item => item.key === wallPattern);
+    const selectedTilePattern = tileBrush || tilePattern;
+    const selectedWallPattern = wallBrush || wallPattern;
+    const tileMeta = tilePatternList.find(item => item.key === selectedTilePattern);
+    const wallMeta = wallTextureList.find(item => item.key === selectedWallPattern);
     setRealModalLoadingStatus();
 
     try {
@@ -1581,16 +1609,16 @@ async function testRealImageWithOpenRouter(roomImage) {
         }
 
         const [tileReferenceDataUrl, wallReferenceDataUrl] = await Promise.all([
-            getTileReferenceDataUrl(),
-            getWallReferenceDataUrl()
+            getTileReferenceDataUrl(selectedTilePattern),
+            getWallReferenceDataUrl(selectedWallPattern)
         ]);
 
         const formData = new FormData();
-    formData.append('room_image', preparedRoomImage.uploadFile);
+        formData.append('room_image', preparedRoomImage.uploadFile);
         formData.append('tile_reference_data_url', tileReferenceDataUrl);
         formData.append('wall_reference_data_url', wallReferenceDataUrl);
-        formData.append('tile_pattern_label', tileMeta?.label || tilePattern);
-        formData.append('wall_pattern_label', wallMeta?.label || wallPattern);
+        formData.append('tile_pattern_label', tileMeta?.label || selectedTilePattern);
+        formData.append('wall_pattern_label', wallMeta?.label || selectedWallPattern);
 
         const response = await fetch('/api/image-edit', {
             method: 'POST',
@@ -1899,12 +1927,8 @@ window.updateWallHeight = function(val) {
 
 window.updateWallTexture = function() {
     const select = document.getElementById('wallTextureSelect');
-    if (select) {
-        wallPattern = select.value;
-    }
-    renderWallSwatches();
-    build3D();
-    recordHistorySnapshot();
+    if (!select || !select.value) return;
+    setWallTexture(select.value);
 }
 
 window.toggleWallDeleteMode = function(enabled) {
@@ -2235,17 +2259,27 @@ window.handleCustomTileUpload = function(e) {
 }
 
 function setTilePattern(patternKey) {
-    if (!tileBrush) tileBrush = tilePattern;
     tileBrush = patternKey;
+    if (!tileSinglePaintMode) {
+        tilePattern = patternKey;
+        floorTextureData = {};
+        build3D();
+        recordHistorySnapshot();
+    }
     renderTileSwatches();
 }
 
 function setWallTexture(patternKey) {
-    if (!wallBrush) wallBrush = wallPattern;
     wallBrush = patternKey;
     const select = document.getElementById('wallTextureSelect');
     if (select) {
         select.value = patternKey;
+    }
+    if (!wallSinglePaintMode) {
+        wallPattern = patternKey;
+        wallTextureData = {};
+        build3D();
+        recordHistorySnapshot();
     }
     renderWallSwatches();
 }
@@ -2319,17 +2353,13 @@ window.addCustomFixtureType = function() {
 };
 
 window.fillAllTiles = function() {
-    tilePattern = tileBrush || tilePattern;
-    floorTextureData = {}; 
-    build3D();
-    recordHistorySnapshot();
+    tileSinglePaintMode = !tileSinglePaintMode;
+    syncTilePerPieceModeButton();
 }
 
 window.fillAllWalls = function() {
-    wallPattern = wallBrush || wallPattern;
-    wallTextureData = {};
-    build3D();
-    recordHistorySnapshot();
+    wallSinglePaintMode = !wallSinglePaintMode;
+    syncWallPerPieceModeButton();
 }
 
 window.rotateAllTiles = function() {
@@ -3009,6 +3039,8 @@ document.addEventListener('keydown', (event) => {
 renderWallTextureOptions();
 renderWallSwatches();
 renderTileSwatches();
+syncWallPerPieceModeButton();
+syncTilePerPieceModeButton();
 
 // ─── Catalog persistence (separate from autosave) ─────────────────────────────
 const CATALOG_KEY = 'pm69-floorplanner:catalog:v1';
