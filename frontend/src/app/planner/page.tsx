@@ -286,7 +286,7 @@ export default function PlannerPage() {
               รีเซ็ต offset
             </button>
           </div>
-          <p className="hint" style={{ marginTop: "4px" }}>เปิดโหมดแล้วลากบนพื้นเพื่อขยับตำแหน่ง joint</p>
+          <p className="hint" style={{ marginTop: "4px" }}>เปิดโหมดแล้วลากบนพื้นเพื่อขยับตำแหน่ง joint (ถ้าเปิดโหมดเลือก Cell จะลากเฉพาะที่เลือก และ snap ทุก 25% ของด้านยาวกระเบื้อง)</p>
           <label className="field-label" style={{ marginTop: "12px" }}>ลายกระเบื้อง</label>
           <div id="tileSwatches" className="swatch-grid"></div>
           <div className="toggle-row" style={{ marginTop: "12px" }}>

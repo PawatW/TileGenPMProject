@@ -61,11 +61,16 @@ let dragMutatedState = false;
 
 // Tile offset drag state
 let tileOffsets = {};             // { [patternKey]: { x, y } } — UV offset in tile units
+let tileCellOffsets = {};         // { ["x,y"]: { x, y } } — UV offset per selected cell
 let tileGlobalTransforms = {};    // { [patternKey]: { rotation: 0|1|2|3, flip: bool } } — for large tiles >1 m
 let tileOffsetDragMode = false;   // โหมดลากขยับตำแหน่งกระเบื้อง
 let isDraggingTileOffset = false;
 let tileOffsetDragPattern = null;
 let tileOffsetDragLastPos = null; // THREE.Vector3
+let isDraggingSelectedCellOffsets = false;
+let selectedCellOffsetDragStartPos = null;
+let selectedCellOffsetDragStartOffsets = {};
+let selectedCellOffsetDragKeys = [];
 const WALL_LAYOUT_OPEN = 'open';
 const WALL_LAYOUT_FULL = 'full';
 const WALL_LAYOUT_CUSTOM = 'custom';
@@ -284,6 +289,7 @@ function serializeDesignState() {
         customFixtures: fixtureCatalog.filter(f => f.key.startsWith('custom_fixture_')),
         removedWalls: Array.from(removedWalls),
         tileOffsets,
+        tileCellOffsets,
         tileGlobalTransforms,
         fixtures
     };
@@ -367,6 +373,11 @@ function applyDesignState(state) {
         tileOffsets = { ...state.tileOffsets };
     } else {
         tileOffsets = {};
+    }
+    if (state.tileCellOffsets && typeof state.tileCellOffsets === 'object') {
+        tileCellOffsets = { ...state.tileCellOffsets };
+    } else {
+        tileCellOffsets = {};
     }
     if (state.tileGlobalTransforms && typeof state.tileGlobalTransforms === 'object') {
         tileGlobalTransforms = { ...state.tileGlobalTransforms };
@@ -852,6 +863,7 @@ window.resetGrid = function() {
     floorTextureData = {};
     wallTextureData = {};
     tileOffsets = {};
+    tileCellOffsets = {};
     tileGlobalTransforms = {};
     removedWalls.clear();
     placementMode = null;
@@ -1306,7 +1318,6 @@ function calculatePricingSummary() {
                     meta,
                     safeW: (tW > 0 && Number.isFinite(tW)) ? tW : 0.6,
                     safeL: (tL > 0 && Number.isFinite(tL)) ? tL : 0.6,
-                    tileOff: tileOffsets[cellPattern] || { x: 0, y: 0 },
                     area: 0, freeTileCount: 0, tileSet: new Set()
                 };
             }
@@ -1314,10 +1325,14 @@ function calculatePricingSummary() {
             pd.area += cellArea;
             const cx = x - offsetX - (1 - fracX) / 2;
             const cz = y - offsetZ - (1 - fracY) / 2;
-            const uMin = (cx - fracX / 2) / pd.safeW + (pd.tileOff?.x || 0);
-            const uMax = (cx + fracX / 2) / pd.safeW + (pd.tileOff?.x || 0);
-            const vMin = (cz - fracY / 2) / pd.safeL + (pd.tileOff?.y || 0);
-            const vMax = (cz + fracY / 2) / pd.safeL + (pd.tileOff?.y || 0);
+            const patternOff = tileOffsets[cellPattern] || { x: 0, y: 0 };
+            const cellOff = tileCellOffsets[`${x},${y}`] || { x: 0, y: 0 };
+            const totalOffX = (patternOff.x || 0) + (cellOff.x || 0);
+            const totalOffY = (patternOff.y || 0) + (cellOff.y || 0);
+            const uMin = (cx - fracX / 2) / pd.safeW + totalOffX;
+            const uMax = (cx + fracX / 2) / pd.safeW + totalOffX;
+            const vMin = (cz - fracY / 2) / pd.safeL + totalOffY;
+            const vMax = (cz + fracY / 2) / pd.safeL + totalOffY;
             const tiX0 = Math.floor(uMin), tiX1 = Math.floor(uMax - 1e-9);
             const tiZ0 = Math.floor(vMin), tiZ1 = Math.floor(vMax - 1e-9);
             for (let ti = tiX0; ti <= tiX1; ti++) {
@@ -1710,7 +1725,13 @@ function build3D() {
             const safeL = (tileL > 0 && Number.isFinite(tileL)) ? tileL : 0.6;
 
             // Per-cell UV state
-            const tileOff = tileOffsets[cellPattern] || { x: 0, y: 0 };
+            const cellKey = `${x},${y}`;
+            const patternOff = tileOffsets[cellPattern] || { x: 0, y: 0 };
+            const cellOff = tileCellOffsets[cellKey] || { x: 0, y: 0 };
+            const tileOff = {
+                x: (patternOff.x || 0) + (cellOff.x || 0),
+                y: (patternOff.y || 0) + (cellOff.y || 0),
+            };
             const cellRotRad = rotationData[x][y] * Math.PI / 2;
             const doFlip = !!flipData[x][y];
             const cellUCx = cx / safeW + tileOff.x; // cell center in tile UV space (X)
@@ -1961,6 +1982,10 @@ window.setTileDragPaintMode = function(enabled) {
 window.setCellSelectMode = function(enabled) {
     cellSelectMode = enabled;
     if (!enabled) {
+        isDraggingSelectedCellOffsets = false;
+        selectedCellOffsetDragStartPos = null;
+        selectedCellOffsetDragStartOffsets = {};
+        selectedCellOffsetDragKeys = [];
         selectedCells.clear();
         updateSelectionHighlight();
     }
@@ -1973,6 +1998,7 @@ window.paintSelectedCells = function() {
     for (const key of selectedCells) {
         const [gx, gy] = key.split(',').map(Number);
         floorTextureData[`${gx},${gy}`] = targetBrush;
+        delete tileCellOffsets[`${gx},${gy}`];
         rotationData[gx][gy] = 0;
         flipData[gx][gy] = 0;
     }
@@ -2036,10 +2062,14 @@ window.toggleTileCellMode = function() {
 window.setTileOffsetMode = function(enabled) {
     tileOffsetDragMode = enabled;
     renderer.domElement.style.cursor = enabled ? 'grab' : 'default';
-    if (!enabled && isDraggingTileOffset) {
+    if (!enabled && (isDraggingTileOffset || isDraggingSelectedCellOffsets)) {
         isDraggingTileOffset = false;
         tileOffsetDragPattern = null;
         tileOffsetDragLastPos = null;
+        isDraggingSelectedCellOffsets = false;
+        selectedCellOffsetDragStartPos = null;
+        selectedCellOffsetDragStartOffsets = {};
+        selectedCellOffsetDragKeys = [];
         controls.enabled = true;
     }
 }
@@ -2267,6 +2297,7 @@ function setTilePattern(patternKey) {
     if (!tileSinglePaintMode) {
         tilePattern = patternKey;
         floorTextureData = {};
+        tileCellOffsets = {};
         build3D();
         recordHistorySnapshot();
     }
@@ -2587,9 +2618,34 @@ function onPointerDown(event) {
         const tileHit = tileHits.find(hit => hit.object.userData.isTile);
         if (tileHit) {
             const data = tileHit.object.userData;
-            tileOffsetDragPattern = floorTextureData[`${data.x},${data.y}`] || tilePattern;
+            const hitCellKey = `${data.x},${data.y}`;
             const worldPos = new THREE.Vector3();
             if (raycaster.ray.intersectPlane(floorIntersectPlane, worldPos)) {
+                if (cellSelectMode && selectedCells.size > 0) {
+                    if (!selectedCells.has(hitCellKey)) return;
+
+                    selectedCellOffsetDragKeys = Array.from(selectedCells).filter((key) => {
+                        const [gx, gy] = key.split(',').map(Number);
+                        return !!gridData[gx]?.[gy];
+                    });
+                    if (selectedCellOffsetDragKeys.length === 0) return;
+
+                    selectedCellOffsetDragStartPos = worldPos.clone();
+                    selectedCellOffsetDragStartOffsets = {};
+                    selectedCellOffsetDragKeys.forEach((key) => {
+                        const base = tileCellOffsets[key] || { x: 0, y: 0 };
+                        selectedCellOffsetDragStartOffsets[key] = { x: base.x || 0, y: base.y || 0 };
+                    });
+
+                    isDraggingSelectedCellOffsets = true;
+                    dragMutatedState = false;
+                    ignoreNextClick = true;
+                    controls.enabled = false;
+                    renderer.domElement.style.cursor = 'grabbing';
+                    return;
+                }
+
+                tileOffsetDragPattern = floorTextureData[hitCellKey] || tilePattern;
                 tileOffsetDragLastPos = worldPos.clone();
                 isDraggingTileOffset = true;
                 dragMutatedState = false;
@@ -2690,11 +2746,13 @@ function onCanvasClick(event) {
                     const targets = footprint.length > 0 ? footprint : [{ gx: clickedGx, gy: clickedGy }];
                     for (const { gx, gy } of targets) {
                         floorTextureData[`${gx},${gy}`] = targetBrush;
+                        delete tileCellOffsets[`${gx},${gy}`];
                         rotationData[gx][gy] = 0;
                         flipData[gx][gy] = 0;
                     }
                 } else {
                     floorTextureData[`${clickedGx},${clickedGy}`] = targetBrush;
+                    delete tileCellOffsets[`${clickedGx},${clickedGy}`];
                     rotationData[clickedGx][clickedGy] = 0;
                     flipData[clickedGx][clickedGy] = 0;
                 }
@@ -2766,6 +2824,54 @@ function onPointerMove(event) {
         }
         return;
     }
+
+    // ลากขยับตำแหน่งเฉพาะ cell ที่เลือก (snap ทีละ 25% ของด้านยาวสุดของ tile)
+    if (isDraggingSelectedCellOffsets && (event.buttons & 1) !== 0) {
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        const worldPos = new THREE.Vector3();
+        if (raycaster.ray.intersectPlane(floorIntersectPlane, worldPos) && selectedCellOffsetDragStartPos) {
+            const dx = worldPos.x - selectedCellOffsetDragStartPos.x;
+            const dz = worldPos.z - selectedCellOffsetDragStartPos.z;
+            let hasChange = false;
+
+            for (const key of selectedCellOffsetDragKeys) {
+                const [gx, gy] = key.split(',').map(Number);
+                if (!gridData[gx]?.[gy]) continue;
+
+                const cellPattern = floorTextureData[key] || tilePattern;
+                const meta = getTileMetaByKey(cellPattern);
+                const { widthM, lengthM } = getTileSizeInMeters(meta);
+                const safeW = (widthM > 0 && Number.isFinite(widthM)) ? widthM : 0.6;
+                const safeL = (lengthM > 0 && Number.isFinite(lengthM)) ? lengthM : 0.6;
+                const snapStepMeters = Math.max(safeW, safeL) * 0.25;
+                const safeStep = snapStepMeters > 1e-9 ? snapStepMeters : 0.15;
+
+                const snapDx = Math.round(dx / safeStep) * safeStep;
+                const snapDz = Math.round(dz / safeStep) * safeStep;
+
+                const start = selectedCellOffsetDragStartOffsets[key] || { x: 0, y: 0 };
+                const next = {
+                    x: (start.x || 0) - (snapDx / safeW),
+                    y: (start.y || 0) - (snapDz / safeL),
+                };
+                const prev = tileCellOffsets[key] || { x: 0, y: 0 };
+                if (Math.abs((prev.x || 0) - next.x) > 1e-9 || Math.abs((prev.y || 0) - next.y) > 1e-9) {
+                    tileCellOffsets[key] = next;
+                    hasChange = true;
+                }
+            }
+
+            if (hasChange) {
+                dragMutatedState = true;
+                build3D();
+            }
+        }
+        return;
+    }
+
     // ลากขยับตำแหน่งกระเบื้อง
     if (isDraggingTileOffset && (event.buttons & 1) !== 0) {
         const rect = renderer.domElement.getBoundingClientRect();
@@ -2812,11 +2918,13 @@ function onPointerMove(event) {
                         if (!dragPaintedCells.has(fk)) {
                             dragPaintedCells.add(fk);
                             floorTextureData[fk] = targetBrush;
+                            delete tileCellOffsets[fk];
                             rotationData[fx][fy] = 0; flipData[fx][fy] = 0;
                         }
                     }
                 } else {
                     floorTextureData[key] = targetBrush;
+                    delete tileCellOffsets[key];
                     rotationData[gx][gy] = 0; flipData[gx][gy] = 0;
                 }
                 dragMutatedState = true;
@@ -2871,6 +2979,17 @@ function onPointerUp() {
         dragPaintedCells.clear();
         dragMutatedState = false;
         controls.enabled = true;
+        return;
+    }
+    if (isDraggingSelectedCellOffsets) {
+        if (dragMutatedState) recordHistorySnapshot();
+        isDraggingSelectedCellOffsets = false;
+        selectedCellOffsetDragStartPos = null;
+        selectedCellOffsetDragStartOffsets = {};
+        selectedCellOffsetDragKeys = [];
+        dragMutatedState = false;
+        controls.enabled = true;
+        renderer.domElement.style.cursor = tileOffsetDragMode ? 'grab' : 'default';
         return;
     }
     if (isDraggingTileOffset) {
