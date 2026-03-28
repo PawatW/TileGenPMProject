@@ -147,15 +147,17 @@ export default function PlannerPage() {
             className="hidden-select"
             onChange={() => (window as any).updateWallTexture?.()}
           ></select>
-          <button
-            id="wallPerPieceModeBtn"
-            className="btn-outline"
-            style={{ width: "100%", justifyContent: "center", marginBottom: "4px" }}
-            onClick={() => (window as any).fillAllWalls?.()}
-          >
-            ทาทีละผนัง: ปิด (เลือกแล้วเททุกกำแพง)
-          </button>
-          <p className="hint" style={{ marginTop: "0", marginBottom: "12px" }}>ค่าเริ่มต้น: เลือกลายแล้วเททุกกำแพงทันที</p>
+          <div className="toggle-row">
+            <span className="toggle-label">ทาทีละผนัง</span>
+            <label className="switch">
+              <input
+                type="checkbox"
+                id="wallPerPieceToggle"
+                onChange={(e) => (window as any).toggleWallSinglePaintMode?.((e.target as HTMLInputElement).checked)}
+              />
+              <span className="switch-track"></span>
+            </label>
+          </div>
           <div className="toggle-row">
             <span className="toggle-label">โหมดแก้ไขกำแพง</span>
             <label className="switch">
@@ -284,15 +286,17 @@ export default function PlannerPage() {
           <p className="hint" style={{ marginTop: "4px" }}>เปิดโหมดแล้วลากบนพื้นเพื่อขยับตำแหน่ง joint</p>
           <label className="field-label" style={{ marginTop: "12px" }}>ลายกระเบื้อง</label>
           <div id="tileSwatches" className="swatch-grid"></div>
-          <button
-            id="tilePerPieceModeBtn"
-            className="btn-outline"
-            style={{ marginTop: "12px", width: "100%", justifyContent: "center" }}
-            onClick={() => (window as any).fillAllTiles?.()}
-          >
-            ทาทีละแผ่น: ปิด (เลือกแล้วเททั้งห้อง)
-          </button>
-          <p className="hint" style={{ marginTop: "4px" }}>ค่าเริ่มต้น: เลือกลายแล้วเททั้งห้องทันที</p>
+          <div className="toggle-row" style={{ marginTop: "12px" }}>
+            <span className="toggle-label">ทาทีละแผ่น</span>
+            <label className="switch">
+              <input
+                type="checkbox"
+                id="tilePerPieceToggle"
+                onChange={(e) => (window as any).toggleTileSinglePaintMode?.((e.target as HTMLInputElement).checked)}
+              />
+              <span className="switch-track"></span>
+            </label>
+          </div>
           <button
             id="tileCellModeBtn"
             className="btn-outline"

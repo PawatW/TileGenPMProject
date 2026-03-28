@@ -377,8 +377,8 @@ function applyDesignState(state) {
     wallBrush = state.wallPattern;
     tileSinglePaintMode = false;
     wallSinglePaintMode = false;
-    syncTilePerPieceModeButton();
-    syncWallPerPieceModeButton();
+    syncTilePerPieceToggle();
+    syncWallPerPieceToggle();
 
     removedWalls.clear();
     if (wallLayoutMode === WALL_LAYOUT_OPEN) {
@@ -990,22 +990,16 @@ function renderWallSwatches() {
     });
 }
 
-function syncTilePerPieceModeButton() {
-    const btn = document.getElementById('tilePerPieceModeBtn');
-    if (!btn) return;
-    btn.textContent = tileSinglePaintMode
-        ? 'ทาทีละแผ่น: เปิด ✓'
-        : 'ทาทีละแผ่น: ปิด (เลือกแล้วเททั้งห้อง)';
-    btn.setAttribute('aria-pressed', tileSinglePaintMode ? 'true' : 'false');
+function syncTilePerPieceToggle() {
+    const input = document.getElementById('tilePerPieceToggle');
+    if (!input) return;
+    input.checked = tileSinglePaintMode;
 }
 
-function syncWallPerPieceModeButton() {
-    const btn = document.getElementById('wallPerPieceModeBtn');
-    if (!btn) return;
-    btn.textContent = wallSinglePaintMode
-        ? 'ทาทีละผนัง: เปิด ✓'
-        : 'ทาทีละผนัง: ปิด (เลือกแล้วเททุกกำแพง)';
-    btn.setAttribute('aria-pressed', wallSinglePaintMode ? 'true' : 'false');
+function syncWallPerPieceToggle() {
+    const input = document.getElementById('wallPerPieceToggle');
+    if (!input) return;
+    input.checked = wallSinglePaintMode;
 }
 
 function renderFixtureSwatches() {
@@ -1931,6 +1925,11 @@ window.updateWallTexture = function() {
     setWallTexture(select.value);
 }
 
+window.toggleWallSinglePaintMode = function(enabled) {
+    wallSinglePaintMode = !!enabled;
+    syncWallPerPieceToggle();
+}
+
 window.toggleWallDeleteMode = function(enabled) {
     wallDeleteMode = enabled;
     if (wallDeleteMode && placementMode) {
@@ -1947,6 +1946,11 @@ window.toggleTileFlipMode = function(enabled) {
 window.setTilePaintMode = function(mode) {
     tilePaintMode = mode; // 'cell' | 'footprint'
     clearHoverHighlight();
+}
+
+window.toggleTileSinglePaintMode = function(enabled) {
+    tileSinglePaintMode = !!enabled;
+    syncTilePerPieceToggle();
 }
 
 window.setTileDragPaintMode = function(enabled) {
@@ -2353,13 +2357,11 @@ window.addCustomFixtureType = function() {
 };
 
 window.fillAllTiles = function() {
-    tileSinglePaintMode = !tileSinglePaintMode;
-    syncTilePerPieceModeButton();
+    window.toggleTileSinglePaintMode(!tileSinglePaintMode);
 }
 
 window.fillAllWalls = function() {
-    wallSinglePaintMode = !wallSinglePaintMode;
-    syncWallPerPieceModeButton();
+    window.toggleWallSinglePaintMode(!wallSinglePaintMode);
 }
 
 window.rotateAllTiles = function() {
@@ -3039,8 +3041,8 @@ document.addEventListener('keydown', (event) => {
 renderWallTextureOptions();
 renderWallSwatches();
 renderTileSwatches();
-syncWallPerPieceModeButton();
-syncTilePerPieceModeButton();
+syncWallPerPieceToggle();
+syncTilePerPieceToggle();
 
 // ─── Catalog persistence (separate from autosave) ─────────────────────────────
 const CATALOG_KEY = 'pm69-floorplanner:catalog:v1';
