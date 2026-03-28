@@ -189,28 +189,33 @@ export default function PlannerPage() {
           </div>
           <div style={{ marginTop: "12px" }}>
             <span className="toggle-label" style={{ fontSize: "12px", display: "block", marginBottom: "6px" }}>โหมดวางกระเบื้อง</span>
-            <div style={{ display: "flex", gap: "6px" }}>
-              {(["cell", "footprint"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  className="btn-outline"
-                  style={{
-                    flex: 1,
-                    justifyContent: "center",
-                    fontSize: "11px",
-                    padding: "4px 6px",
-                    background: paintMode === mode ? "var(--accent)" : "",
-                    color: paintMode === mode ? "#fff" : "",
-                    borderColor: paintMode === mode ? "var(--accent)" : "",
-                  }}
-                  onClick={() => {
-                    setPaintMode(mode);
-                    (window as any).setTilePaintMode?.(mode);
-                  }}
-                >
-                  {mode === "cell" ? "เฉพาะ Cell" : "ตามขนาดกระเบื้อง"}
-                </button>
-              ))}
+            <div className="segmented-control" role="group" aria-label="โหมดวางกระเบื้อง" style={{ marginBottom: 0 }}>
+              <button
+                type="button"
+                className={`segmented-btn ${paintMode === "cell" ? "active" : ""}`}
+                aria-pressed={paintMode === "cell"}
+                style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
+                onClick={() => {
+                  setPaintMode("cell");
+                  (window as any).setTilePaintMode?.("cell");
+                }}
+              >
+                <span>เฉพาะ Cell</span>
+                {paintMode === "cell" && <span style={{ fontSize: "10px", fontWeight: 700 }}>ใช้งาน</span>}
+              </button>
+              <button
+                type="button"
+                className={`segmented-btn ${paintMode === "footprint" ? "active" : ""}`}
+                aria-pressed={paintMode === "footprint"}
+                style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
+                onClick={() => {
+                  setPaintMode("footprint");
+                  (window as any).setTilePaintMode?.("footprint");
+                }}
+              >
+                <span>ตามขนาดกระเบื้อง</span>
+                {paintMode === "footprint" && <span style={{ fontSize: "10px", fontWeight: 700 }}>ใช้งาน</span>}
+              </button>
             </div>
           </div>
           {/* Drag-paint toggle */}
