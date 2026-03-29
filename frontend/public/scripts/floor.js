@@ -63,7 +63,7 @@ let dragMutatedState = false;
 // Tile offset drag state
 let tileOffsets = {};             // { [patternKey]: { x, y } } — UV offset in tile units
 let tileCellOffsets = {};         // { ["x,y"]: { x, y } } — UV offset per selected cell
-let tileUnitOverrides = {};       // { [unitKey]: { gridPatternKey, tileI, tileJ, patternKey, offsetX, offsetY } }
+let tileUnitOverrides = {};       // { [unitKey]: { gridPatternKey, tileI, tileJ, patternKey, offsetX, offsetY, rotation, flip } }
 let tileGlobalTransforms = {};    // { [patternKey]: { rotation: 0|1|2|3, flip: bool } } — for large tiles >1 m
 let tileOffsetDragMode = false;   // โหมดลากขยับตำแหน่งกระเบื้อง
 let isDraggingTileOffset = false;
@@ -1912,6 +1912,11 @@ function build3D() {
         const patternOff = tileOffsets[renderPatternKey] || { x: 0, y: 0 };
         const totalOffX = (patternOff.x || 0) + (Number(unit.offsetX) || 0);
         const totalOffY = (patternOff.y || 0) + (Number(unit.offsetY) || 0);
+        const unitRotation = ((Math.round(Number(unit.rotation) || 0) % 4) + 4) % 4;
+        const unitFlip = !!unit.flip;
+        const unitRotRad = unitRotation * Math.PI / 2;
+        const unitUCx = tileI + 0.5 + totalOffX;
+        const unitUCz = tileJ + 0.5 + totalOffY;
 
         let overlayMaterial;
         if (tileLayoutMode === 'running_bond' && renderTexture) {
@@ -1935,8 +1940,23 @@ function build3D() {
                 const ly = positions.getY(i);
                 const wx = seg.cx + lx;
                 const wz = seg.cz - ly;
-                const u = wx / safeW + totalOffX;
-                const v = wz / safeL + totalOffY;
+                let u = wx / safeW + totalOffX;
+                let v = wz / safeL + totalOffY;
+                if (unitRotation !== 0 || unitFlip) {
+                    let du = u - unitUCx;
+                    let dv = v - unitUCz;
+                    if (unitFlip) du = -du;
+                    if (unitRotRad !== 0) {
+                        const cos = Math.cos(unitRotRad);
+                        const sin = Math.sin(unitRotRad);
+                        const du2 = du * cos - dv * sin;
+                        const dv2 = du * sin + dv * cos;
+                        du = du2;
+                        dv = dv2;
+                    }
+                    u = unitUCx + du;
+                    v = unitUCz + dv;
+                }
                 uvs.setXY(i, u, v);
             }
             uvs.needsUpdate = true;
@@ -2802,6 +2822,8 @@ function ensureTileUnitOverride(unit, patternKey) {
         existing.patternKey = fallbackPattern;
         if (!Number.isFinite(existing.offsetX)) existing.offsetX = 0;
         if (!Number.isFinite(existing.offsetY)) existing.offsetY = 0;
+        if (!Number.isFinite(existing.rotation)) existing.rotation = 0;
+        existing.flip = !!existing.flip;
         return existing;
     }
 
@@ -2812,6 +2834,8 @@ function ensureTileUnitOverride(unit, patternKey) {
         patternKey: fallbackPattern,
         offsetX: 0,
         offsetY: 0,
+        rotation: 0,
+        flip: false,
     };
     tileUnitOverrides[unit.unitKey] = created;
     return created;
@@ -2843,6 +2867,8 @@ function applyTileUnitPaintOverride(unit, patternKey) {
     override.patternKey = targetPattern;
     override.offsetX = 0;
     override.offsetY = 0;
+    override.rotation = 0;
+    override.flip = false;
     unit.cellKeys.forEach((cellKey) => {
         const [gx, gy] = cellKey.split(',').map(Number);
         if (!Number.isFinite(gx) || !Number.isFinite(gy)) return;
@@ -3117,13 +3143,22 @@ function onCanvasClick(event) {
 
             const targetBrush = tileBrush || tilePattern;
             const currentPattern = data.unitPattern || floorTextureData[`${clickedGx},${clickedGy}`] || tilePattern;
+            const clickedUnitOverride = data.unitKey ? tileUnitOverrides[data.unitKey] : null;
 
             if (tileFlipMode) {
-                // โหมดกระจก: สลับ flip เฉพาะ cell ที่คลิก
-                flipData[clickedGx][clickedGy] = flipData[clickedGx][clickedGy] ? 0 : 1;
+                if (clickedUnitOverride) {
+                    clickedUnitOverride.flip = !clickedUnitOverride.flip;
+                } else {
+                    // โหมดกระจก: สลับ flip เฉพาะ cell ที่คลิก
+                    flipData[clickedGx][clickedGy] = flipData[clickedGx][clickedGy] ? 0 : 1;
+                }
             } else if (currentPattern === targetBrush) {
-                // คลิก cell ที่มีลายเดิมอยู่แล้ว → หมุนเฉพาะ cell นั้น
-                rotationData[clickedGx][clickedGy] = (rotationData[clickedGx][clickedGy] + 1) % 4;
+                if (clickedUnitOverride) {
+                    clickedUnitOverride.rotation = (((Math.round(Number(clickedUnitOverride.rotation) || 0) + 1) % 4) + 4) % 4;
+                } else {
+                    // คลิก cell ที่มีลายเดิมอยู่แล้ว → หมุนเฉพาะ cell นั้น
+                    rotationData[clickedGx][clickedGy] = (rotationData[clickedGx][clickedGy] + 1) % 4;
+                }
             } else {
                 // วางลายใหม่
                 if (tilePaintMode === 'footprint') {
@@ -3145,8 +3180,8 @@ function onCanvasClick(event) {
             document.dispatchEvent(new CustomEvent('pmElementSelected', { detail: {
                 type: 'tile', x: clickedGx, y: clickedGy,
                 patternKey: data.unitPattern || floorTextureData[`${clickedGx},${clickedGy}`] || tilePattern,
-                rotation: rotationData[clickedGx][clickedGy] || 0,
-                flip: !!(flipData[clickedGx][clickedGy])
+                rotation: clickedUnitOverride ? ((((Math.round(Number(clickedUnitOverride.rotation) || 0) % 4) + 4) % 4)) : (rotationData[clickedGx][clickedGy] || 0),
+                flip: clickedUnitOverride ? !!clickedUnitOverride.flip : !!(flipData[clickedGx][clickedGy])
             }}));
         }
         // ถ้าคลิก ghost wall (กำแพงที่ถูกลบ) → คืนกลับมา
