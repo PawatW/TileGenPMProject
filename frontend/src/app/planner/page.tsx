@@ -17,7 +17,6 @@ export default function PlannerPage() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
   const [paintMode, setPaintMode] = useState<"cell" | "footprint">("footprint");
-  const [dragPaint, setDragPaint] = useState(false);
   const [cellSelect, setCellSelect] = useState(false);
   const [cellSelectScope, setCellSelectScope] = useState<"single" | "footprint">("footprint");
   const [selectedEl, setSelectedEl] = useState<SelectedEl>(null);
@@ -217,21 +216,6 @@ export default function PlannerPage() {
               </button>
             </div>
           </div>
-          {/* Drag-paint toggle */}
-          <div className="toggle-row" style={{ marginTop: "10px", border: "none", padding: 0 }}>
-            <span className="toggle-label" style={{ fontSize: "12px" }}>โหมดลากทาสี</span>
-            <label className="switch">
-              <input type="checkbox" checked={dragPaint} onChange={(e) => {
-                const v = (e.target as HTMLInputElement).checked;
-                setDragPaint(v);
-                (window as any).setTileDragPaintMode?.(v);
-                if (v && cellSelect) { setCellSelect(false); (window as any).setCellSelectMode?.(false); }
-              }} />
-              <span className="switch-track"></span>
-            </label>
-          </div>
-          <p className="hint" style={{ marginTop: "2px" }}>กดค้างแล้วลากเพื่อทาสีหลาย cell พร้อมกัน</p>
-
           {/* Cell select mode */}
           <div className="toggle-row" style={{ marginTop: "8px", border: "none", padding: 0 }}>
             <span className="toggle-label" style={{ fontSize: "12px" }}>โหมดเลือก Cell</span>
@@ -241,7 +225,6 @@ export default function PlannerPage() {
                 setCellSelect(v);
                 (window as any).setCellSelectMode?.(v);
                 if (v) (window as any).setCellSelectionScope?.(cellSelectScope);
-                if (v && dragPaint) { setDragPaint(false); (window as any).setTileDragPaintMode?.(false); }
               }} />
               <span className="switch-track"></span>
             </label>
@@ -328,6 +311,7 @@ export default function PlannerPage() {
               <span className="switch-track"></span>
             </label>
           </div>
+          <p className="hint" style={{ marginTop: "4px" }}>เมื่อเปิดโหมดนี้ สามารถคลิกซ้ายค้างแล้วลากเพื่อทากระเบื้องตามเมาส์ได้ทันที</p>
           <button
             id="tileCellModeBtn"
             className="btn-outline"

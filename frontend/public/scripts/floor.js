@@ -42,7 +42,6 @@ let placementMode = null;
 let wallDeleteMode = false;
 let tileFlipMode = false;
 let tilePaintMode = 'footprint'; // 'cell' | 'footprint'
-let tileDragPaintMode = false;   // drag-to-paint mode
 let isDragPainting = false;
 let dragPaintedCells = new Set(); // track painted cells in current drag
 let cellSelectMode = false;       // click to select/deselect cells
@@ -2080,12 +2079,11 @@ window.setTilePaintMode = function(mode) {
 
 window.toggleTileSinglePaintMode = function(enabled) {
     tileSinglePaintMode = !!enabled;
+    if (!tileSinglePaintMode) {
+        isDragPainting = false;
+        dragPaintedCells.clear();
+    }
     syncTilePerPieceToggle();
-}
-
-window.setTileDragPaintMode = function(enabled) {
-    tileDragPaintMode = enabled;
-    if (!enabled) { isDragPainting = false; dragPaintedCells.clear(); }
 }
 
 window.setCellSelectMode = function(enabled) {
@@ -2946,15 +2944,14 @@ function onPointerDown(event) {
         return;
     }
 
-    // โหมดลากทาสี (drag-paint): เริ่มลากเมื่อกดบนพื้น
-    if (tileDragPaintMode && !cellSelectMode) {
+    // โหมดทาทีละแผ่น: กดค้างแล้วลากเพื่อทาตามเมาส์
+    if (tileSinglePaintMode && !cellSelectMode && !tileOffsetDragMode) {
         const tileHits = raycaster.intersectObjects(roomGroup.children, true);
         const tileHit = tileHits.find(hit => hit.object.userData.isTile);
         if (tileHit) {
             isDragPainting = true;
             dragPaintedCells.clear();
             controls.enabled = false;
-            ignoreNextClick = true;
             return;
         }
     }
@@ -3342,6 +3339,7 @@ function onPointerMove(event) {
                     dragPaintedCells.add(unitDragKey);
                     applyTileUnitPaintOverride(paintUnit, targetBrush);
                     dragMutatedState = true;
+                    ignoreNextClick = true;
                     build3D();
                 }
             } else if (!dragPaintedCells.has(key)) {
@@ -3351,6 +3349,7 @@ function onPointerMove(event) {
                 delete tileCellOffsets[key];
                 rotationData[gx][gy] = 0; flipData[gx][gy] = 0;
                 dragMutatedState = true;
+                ignoreNextClick = true;
                 build3D();
             }
         }
