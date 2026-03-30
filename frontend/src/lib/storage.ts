@@ -10,6 +10,7 @@ import {
   apiCreateCatalogItem,
   apiUpdateCatalogItem,
   apiDeleteCatalogItem,
+  apiListDesignSlots,
   type CatalogItem,
 } from "./api";
 
@@ -46,16 +47,80 @@ export interface DraftSlot {
   savedAt: string | null;
 }
 
-const DRAFT_KEY = "pm69-floorplanner:drafts:v1";
+interface DraftStore {
+  version: number;
+  slots: Record<string, { name?: string; savedAt?: string | null; state?: unknown }>;
+}
+
+function getDraftKey(): string {
+  try {
+    const token = localStorage.getItem("pm_token_v1");
+    if (!token) return "pm69-floorplanner:drafts:v1:anonymous";
+    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return `pm69-floorplanner:drafts:v1:${payload.sub || "anonymous"}`;
+  } catch {
+    return "pm69-floorplanner:drafts:v1:anonymous";
+  }
+}
+
+function readDraftStore(): DraftStore {
+  if (typeof window === "undefined") return { version: 1, slots: {} };
+  try {
+    const raw = localStorage.getItem(getDraftKey());
+    if (!raw) return { version: 1, slots: {} };
+    const parsed = JSON.parse(raw) as Partial<DraftStore>;
+    return {
+      version: 1,
+      slots: parsed.slots && typeof parsed.slots === "object" ? parsed.slots : {},
+    };
+  } catch {
+    return { version: 1, slots: {} };
+  }
+}
+
+function writeDraftStore(store: DraftStore): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(getDraftKey(), JSON.stringify({ version: 1, slots: store.slots }));
+}
+
+export async function hydrateDraftSlotsFromApi(): Promise<DraftSlot[]> {
+  if (typeof window === "undefined") return emptySlots();
+  try {
+    const remoteSlots = await apiListDesignSlots();
+    const store = readDraftStore();
+    let changed = false;
+
+    for (const [slotKey, meta] of Object.entries(remoteSlots)) {
+      const slotId = slotKey.replace("slot_", "");
+      if (!/^[1-5]$/.test(slotId)) continue;
+
+      const existing = store.slots[slotId] || {};
+      const next = {
+        ...existing,
+        name: meta.name,
+        savedAt: meta.savedAt,
+      };
+
+      if (!store.slots[slotId] || store.slots[slotId].name !== next.name || store.slots[slotId].savedAt !== next.savedAt) {
+        store.slots[slotId] = next;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      writeDraftStore(store);
+    }
+  } catch {
+    // Keep dashboard usable with local cache when API is temporarily unavailable.
+  }
+
+  return getDraftSlots();
+}
 
 export function getDraftSlots(): DraftSlot[] {
   if (typeof window === "undefined") return emptySlots();
   try {
-    const raw = localStorage.getItem(DRAFT_KEY);
-    if (!raw) return emptySlots();
-    const store = JSON.parse(raw) as {
-      slots?: Record<string, { name?: string; savedAt?: string }>;
-    };
+    const store = readDraftStore();
     return Array.from({ length: 5 }, (_, i) => {
       const id = String(i + 1);
       const s = store.slots?.[id];

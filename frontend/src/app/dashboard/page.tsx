@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
-import { getDraftSlots, getCatalog, type DraftSlot } from "@/lib/storage";
+import { getDraftSlots, hydrateDraftSlotsFromApi, getCatalog, type DraftSlot } from "@/lib/storage";
 
 const QUICK_ACTIONS = [
   {
@@ -26,7 +26,7 @@ const QUICK_ACTIONS = [
     iconClass: "green",
     title: "คลัง Tile",
     desc: "จัดการกระเบื้องของฉัน",
-    href: "/catalog",
+    href: "/planner/catalog",
   },
 ];
 
@@ -43,10 +43,23 @@ export default function DashboardPage() {
   }, [user, isLoading, router]);
 
   useEffect(() => {
-    if (user) {
-      setDrafts(getDraftSlots());
-      getCatalog().then((items) => setCatalogCount(items.length));
-    }
+    if (!user) return;
+
+    // Show cached slots immediately, then refresh from API-backed slot metadata.
+    setDrafts(getDraftSlots());
+
+    let active = true;
+    hydrateDraftSlotsFromApi().then((slots) => {
+      if (active) setDrafts(slots);
+    });
+
+    getCatalog().then((items) => {
+      if (active) setCatalogCount(items.length);
+    });
+
+    return () => {
+      active = false;
+    };
   }, [user]);
 
   if (isLoading || !user) return null;
@@ -134,7 +147,7 @@ export default function DashboardPage() {
                   )}
                 </div>
                 <Link
-                  href="/planner"
+                  href={`/planner?slot=${draft.slot}`}
                   className="design-card-open"
                   style={draft.savedAt ? {} : { opacity: 0.4, pointerEvents: "none" }}
                 >

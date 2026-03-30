@@ -25,7 +25,7 @@ const FEATURES = [
     iconClass: "green",
     title: "คลัง Tile ส่วนตัว",
     desc: "สร้างคลังกระเบื้องของคุณเอง กำหนดขนาด ราคา และนำมาใช้ในการคำนวณได้",
-    href: "/catalog",
+    href: "/planner/catalog",
   },
   {
     icon: "💾",

@@ -29,9 +29,22 @@ export default function PlannerPage() {
 
   useEffect(() => {
     if (!user) return;
+
+    // Remove only the Three.js <canvas> appended by the previous floor.js instance.
+    // Do NOT clear innerHTML — that would wipe React-rendered children (draft-toolbar, etc.)
+    const container = document.getElementById("canvas-container");
+    if (container) container.querySelectorAll("canvas").forEach((c) => c.remove());
+
+    // ถ้ามาจาก dashboard พร้อม ?slot=N ให้ auto-load slot นั้น
+    const params = new URLSearchParams(window.location.search);
+    const slot = params.get("slot");
+    if (slot) (window as any).__autoLoadSlot = slot;
+
+    // Cache-bust the URL so the browser re-executes the ES module on every
+    // user change (browsers cache modules by URL and skip re-execution otherwise).
     const script = document.createElement("script");
     script.type = "module";
-    script.src = "/scripts/floor.js";
+    script.src = `/scripts/floor.js?v=${Date.now()}`;
     document.body.appendChild(script);
     return () => {
       if (document.body.contains(script)) {

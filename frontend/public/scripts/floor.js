@@ -48,6 +48,8 @@ let selectedCells = new Set();    // "gx,gy" keys of selected cells
 let ignoreNextClick = false;
 let isDraggingFixture = false;
 let draggingFixture = null;
+let _dragOrigPos = null;       // position before drag started (for collision revert)
+let _dragOrigWallKey = null;   // attachedWallKey before drag started
 const removedWalls = new Set();
 const HISTORY_LIMIT = 120;
 const historyStack = [];
@@ -989,10 +991,34 @@ function positionFixtureOnWall(fixture, wallHit) {
     fixture.userData.attachedWallKey = `${x},${y},${side}`;
 }
 
+/** ตรวจสอบว่า fixture ทับซ้อนกับ fixture อื่นบนกำแพงเดียวกันหรือไม่ */
+function _isFixtureColliding(candidate, excludeSelf) {
+    const wallKey = candidate.userData.attachedWallKey;
+    if (!wallKey) return false;
+    const parts = wallKey.split(',');
+    const side = parts[2];
+    const isZAxis = side === 'left' || side === 'right';
+    const newPos   = isZAxis ? candidate.position.z : candidate.position.x;
+    const newHalfW = (candidate.userData.width || 0) / 2;
+
+    for (const existing of fixturesGroup.children) {
+        if (existing === excludeSelf) continue;
+        if (existing.userData.attachedWallKey !== wallKey) continue;
+        const existPos   = isZAxis ? existing.position.z : existing.position.x;
+        const existHalfW = (existing.userData.width || 0) / 2;
+        if (Math.abs(newPos - existPos) < newHalfW + existHalfW - 0.01) return true;
+    }
+    return false;
+}
+
 function placeFixtureOnWall(wallHit, type) {
     const fixture = createFixtureMesh(type);
     if (!fixture) return null;
     positionFixtureOnWall(fixture, wallHit);
+    if (_isFixtureColliding(fixture, null)) {
+        alert('ไม่สามารถวางได้ — ทับซ้อนกับหน้าต่าง/ประตูที่มีอยู่');
+        return null;
+    }
     fixturesGroup.add(fixture);
     return fixture;
 }
@@ -1890,6 +1916,16 @@ window.handleCustomTileUpload = function(e) {
     const unit = uInput?.value || 'cm';
     const tileName = nameInput?.value?.trim() || '';
     const price = parseFloat(priceInput?.value || '0') || 0;
+
+    // ตรวจขนาดขั้นต่ำ 5 ซม. ต่อด้าน
+    const toCm = { cm: 1, inch: 2.54, m: 100, mm: 0.1 };
+    const wCm = w * (toCm[unit] || 1);
+    const lCm = l * (toCm[unit] || 1);
+    if (!w || !l || wCm < 5 || lCm < 5) {
+        alert('ขนาดกระเบื้องต้องไม่ต่ำกว่า 5 ซม. ต่อด้าน');
+        e.target.value = '';
+        return;
+    }
     const perBox = Math.max(1, parseInt(perBoxInput?.value || '4') || 4);
 
     const reader = new FileReader();
@@ -2250,6 +2286,8 @@ function onPointerDown(event) {
         const fixtureHit = fixtureHits.find(hit => hit.object.parent?.userData?.isFixture || hit.object.userData?.isFixture);
         if (fixtureHit) {
             draggingFixture = fixtureHit.object.userData?.isFixture ? fixtureHit.object : fixtureHit.object.parent;
+            _dragOrigPos = draggingFixture.position.clone();
+            _dragOrigWallKey = draggingFixture.userData.attachedWallKey;
             isDraggingFixture = true;
             dragMutatedState = false;
             ignoreNextClick = true;
@@ -2498,11 +2536,19 @@ function onPointerUp() {
     }
     if (isDraggingFixture) {
         if (dragMutatedState) {
-            recordHistorySnapshot();
+            if (_isFixtureColliding(draggingFixture, draggingFixture)) {
+                // revert to position before drag
+                draggingFixture.position.copy(_dragOrigPos);
+                draggingFixture.userData.attachedWallKey = _dragOrigWallKey;
+            } else {
+                recordHistorySnapshot();
+            }
         }
         isDraggingFixture = false;
         draggingFixture = null;
         dragMutatedState = false;
+        _dragOrigPos = null;
+        _dragOrigWallKey = null;
         controls.enabled = true;
     }
 }
@@ -2644,9 +2690,15 @@ function loadCatalog() {
         const catalog = JSON.parse(raw);
         if (Array.isArray(catalog.tiles)) {
             catalog.tiles.forEach(item => {
-                if (!tilePatternList.some(t => t.key === item.key)) {
-                    tilePatternList.push(item);
-                    tileTextures[item.key] = loadImageTileTexture(item.url, 2);
+                const normalizedItem = {
+                    ...item,
+                    type: item.type || 'image',
+                };
+                if (!tilePatternList.some(t => t.key === normalizedItem.key)) {
+                    tilePatternList.push(normalizedItem);
+                    if (normalizedItem.type === 'image' && normalizedItem.url) {
+                        tileTextures[normalizedItem.key] = loadImageTileTexture(normalizedItem.url, 2);
+                    }
                 }
             });
             renderTileSwatches();

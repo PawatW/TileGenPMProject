@@ -11,8 +11,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+RUN chmod +x /app/entrypoint.sh
 
 ENV FLASK_ENV=production
 EXPOSE 5001
 
-CMD ["python", "-m", "gunicorn", "--bind", "0.0.0.0:5001", "--workers", "2", "--timeout", "180", "app:app"]
+CMD ["/app/entrypoint.sh"]

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { getCatalog, type CatalogItem } from "@/lib/storage";
 
@@ -31,6 +32,97 @@ interface CalcResult {
 
 // Visual grid: cap at MAX_VIS tiles per axis
 const MAX_VIS = 28;
+
+const BUILTIN_CALCULATOR_TILES: CatalogItem[] = [
+  {
+    id: "builtin:devonoir_graphite",
+    name: "เดโวนัวร์ กราไฟต์ PM",
+    widthCm: 45.72,
+    heightCm: 45.72,
+    pricePerBox: 275,
+    tilesPerBox: 6,
+    color: "",
+    note: "builtin",
+    createdAt: "1970-01-01T00:00:00.000Z",
+  },
+  {
+    id: "builtin:mosaic_hideaway_alpine",
+    name: "MT4SR1ไฮด์อเวย์อัลไพน์ เทาอ่อน",
+    widthCm: 30.48,
+    heightCm: 30.48,
+    pricePerBox: 1230,
+    tilesPerBox: 10,
+    color: "",
+    note: "builtin",
+    createdAt: "1970-01-01T00:00:00.000Z",
+  },
+  {
+    id: "builtin:real3",
+    name: "ภาพจริง 3",
+    widthCm: 60,
+    heightCm: 60,
+    pricePerBox: 150,
+    tilesPerBox: 4,
+    color: "",
+    note: "builtin",
+    createdAt: "1970-01-01T00:00:00.000Z",
+  },
+  {
+    id: "builtin:8852406563861",
+    name: "FT 45x45 เชฟรอน มาร์เบิล (ซาติน) PM",
+    widthCm: 45.72,
+    heightCm: 45.72,
+    pricePerBox: 250,
+    tilesPerBox: 5,
+    color: "",
+    note: "builtin",
+    createdAt: "1970-01-01T00:00:00.000Z",
+  },
+  {
+    id: "builtin:quarter",
+    name: "ลายโค้ง",
+    widthCm: 101.6,
+    heightCm: 101.6,
+    pricePerBox: 150,
+    tilesPerBox: 4,
+    color: "",
+    note: "builtin",
+    createdAt: "1970-01-01T00:00:00.000Z",
+  },
+  {
+    id: "builtin:checker",
+    name: "ตารางสลับ",
+    widthCm: 60,
+    heightCm: 60,
+    pricePerBox: 150,
+    tilesPerBox: 4,
+    color: "",
+    note: "builtin",
+    createdAt: "1970-01-01T00:00:00.000Z",
+  },
+  {
+    id: "builtin:diagonal",
+    name: "เส้นเฉียง",
+    widthCm: 60,
+    heightCm: 60,
+    pricePerBox: 150,
+    tilesPerBox: 4,
+    color: "",
+    note: "builtin",
+    createdAt: "1970-01-01T00:00:00.000Z",
+  },
+  {
+    id: "builtin:terrazzo",
+    name: "เทอราซโซ",
+    widthCm: 60,
+    heightCm: 60,
+    pricePerBox: 150,
+    tilesPerBox: 4,
+    color: "",
+    note: "builtin",
+    createdAt: "1970-01-01T00:00:00.000Z",
+  },
+];
 
 function calcResult(inputs: CalcInputs): CalcResult {
   const { roomWidthM, roomLengthM, tileWidthCm, tileLengthCm, tilesPerBox, pricePerBox, wastePercent } = inputs;
@@ -167,10 +259,15 @@ export default function CalculatorPage() {
     if (user) getCatalog().then(setCatalog);
   }, [user]);
 
+  const catalogOptions = useMemo(
+    () => [...BUILTIN_CALCULATOR_TILES, ...catalog],
+    [catalog]
+  );
+
   const handleCatalogSelect = (id: string) => {
     setSelectedCatalogId(id);
     if (id === "manual") return;
-    const item = catalog.find((c) => c.id === id);
+    const item = catalogOptions.find((c) => c.id === id);
     if (item) {
       setInputs((prev) => ({
         ...prev,
@@ -279,6 +376,11 @@ export default function CalculatorPage() {
                   onChange={(e) => handleCatalogSelect(e.target.value)}
                 >
                   <option value="manual">— กำหนดเอง —</option>
+                  {BUILTIN_CALCULATOR_TILES.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} ({item.widthCm}×{item.heightCm} cm · ฿{item.pricePerBox}/กล่อง)
+                    </option>
+                  ))}
                   {catalog.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.name} ({item.widthCm}×{item.heightCm} cm · ฿{item.pricePerBox}/กล่อง)
@@ -287,10 +389,10 @@ export default function CalculatorPage() {
                 </select>
                 {catalog.length === 0 && (
                   <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>
-                    ยังไม่มี Tile ในคลัง —{" "}
-                    <a href="/catalog" style={{ color: "var(--text)", textDecoration: "underline" }}>
+                    แสดงรายการ Built-in เท่านั้น —{" "}
+                    <Link href="/planner/catalog" style={{ color: "var(--text)", textDecoration: "underline" }}>
                       เพิ่มที่นี่
-                    </a>
+                    </Link>
                   </p>
                 )}
               </div>

@@ -129,6 +129,20 @@ export async function apiDeleteCatalogItem(id: string): Promise<void> {
   }
 }
 
+// ── planner drafts ───────────────────────────────────────────────────────────
+
+export interface DesignSlotMeta {
+  slotKey: string;
+  name: string;
+  savedAt: string | null;
+}
+
+export async function apiListDesignSlots(): Promise<Record<string, DesignSlotMeta>> {
+  const res = await apiFetch("/api/designs/slots");
+  if (!res.ok) return {};
+  return res.json();
+}
+
 // ── quotations ────────────────────────────────────────────────────────────────
 
 export interface QuotationSummary {

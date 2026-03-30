@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import Link from "next/link";
+import { addCatalogItem, deleteCatalogItem } from "@/lib/storage";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const CATALOG_KEY = "pm69-floorplanner:catalog:v1";
@@ -35,7 +36,7 @@ const BUILTIN_FIXTURES = [
 ];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-interface CustomTile   { key: string; label: string; url: string; width: number; length: number; unit: string; pricePerBox: number; tilesPerBox: number }
+interface CustomTile   { key: string; label: string; type: "image"; url: string; width: number; length: number; unit: string; pricePerBox: number; tilesPerBox: number; dbId?: string }
 interface CustomWall   { key: string; label: string; url: string; repeatX?: number; repeatYPerMeter?: number }
 interface CustomFixture{ key: string; label: string; renderAs: string; width: number; height: number; depth: number; preview: { base: string; accent: string } }
 interface Catalog { tiles: CustomTile[]; walls: CustomWall[]; fixtures: CustomFixture[] }
@@ -51,6 +52,12 @@ function readCatalog(): Catalog {
 
 function writeCatalog(c: Catalog) {
   try { localStorage.setItem(CATALOG_KEY, JSON.stringify(c)); } catch {}
+}
+
+function toCm(value: number, unit: string): number {
+  if (unit === "inch") return value * 2.54;
+  if (unit === "m") return value * 100;
+  return value;
 }
 
 // ─── Shared UI ────────────────────────────────────────────────────────────────
@@ -132,6 +139,7 @@ export default function CatalogPage() {
 
   const reload = useCallback(() => setCatalog(readCatalog()), []);
   useEffect(() => { reload(); }, [reload]);
+
   useEffect(() => {
     const h = () => reload();
     window.addEventListener("storage", h);
@@ -162,13 +170,6 @@ export default function CatalogPage() {
     });
   }, []);
 
-  const onTileFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0]; if (!f) return;
-    setTileImgUrl(await compressImage(f));
-    setTileImgName(f.name);
-    e.target.value = "";
-  }, [compressImage]);
-
   const onWallFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]; if (!f) return;
     setWallImgUrl(await compressImage(f));
@@ -176,13 +177,53 @@ export default function CatalogPage() {
     e.target.value = "";
   }, [compressImage]);
 
-  const saveTile = useCallback(() => {
+  const onTileFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]; if (!f) return;
+    setTileImgUrl(await compressImage(f));
+    setTileImgName(f.name);
+    e.target.value = "";
+  }, [compressImage]);
+
+  const saveTile = useCallback(async () => {
     if (!tileImgUrl) { alert("กรุณาเลือกรูป"); return; }
     if (!tileName.trim()) { alert("กรุณาใส่ชื่อ"); return; }
-    const next = { ...catalog };
-    next.tiles = [...next.tiles, { key: `custom_${Date.now()}`, label: tileName.trim(), url: tileImgUrl, width: tileW, length: tileL, unit: tileUnit, pricePerBox: tilePrice, tilesPerBox: tilePerBox }];
-    writeCatalog(next); setCatalog(next);
-    setTileName(""); setTileImgUrl(null); setTileImgName(""); setTilePrice(0); setTilePerBox(4);
+    try {
+      const created = await addCatalogItem({
+        name: tileName.trim(),
+        widthCm: Number(toCm(tileW, tileUnit).toFixed(2)),
+        heightCm: Number(toCm(tileL, tileUnit).toFixed(2)),
+        pricePerBox: Number(tilePrice || 0),
+        tilesPerBox: Math.max(1, parseInt(String(tilePerBox), 10) || 1),
+        color: "",
+        note: "",
+      });
+
+      const next = { ...catalog };
+      next.tiles = [
+        ...next.tiles,
+        {
+          key: `custom_${Date.now()}`,
+          label: tileName.trim(),
+          type: "image",
+          url: tileImgUrl,
+          width: tileW,
+          length: tileL,
+          unit: tileUnit,
+          pricePerBox: tilePrice,
+          tilesPerBox: tilePerBox,
+          dbId: created.id,
+        },
+      ];
+      writeCatalog(next);
+      setCatalog(next);
+      setTileName("");
+      setTileImgUrl(null);
+      setTileImgName("");
+      setTilePrice(0);
+      setTilePerBox(4);
+    } catch (error) {
+      alert((error as Error).message || "บันทึกไม่สำเร็จ");
+    }
   }, [catalog, tileName, tileImgUrl, tileW, tileL, tileUnit, tilePrice, tilePerBox]);
 
   const saveWall = useCallback(() => {
@@ -206,7 +247,21 @@ export default function CatalogPage() {
     setFixName("");
   }, [catalog, fixName, fixStyle, fixW, fixH]);
 
-  const deleteTile    = useCallback((key: string) => { const next = { ...catalog, tiles: catalog.tiles.filter(t => t.key !== key) }; writeCatalog(next); setCatalog(next); }, [catalog]);
+  const deleteTile = useCallback(async (key: string) => {
+    const tile = catalog.tiles.find((t) => t.key === key);
+    if (!tile) return;
+
+    try {
+      if (tile.dbId) {
+        await deleteCatalogItem(tile.dbId);
+      }
+      const next = { ...catalog, tiles: catalog.tiles.filter((t) => t.key !== key) };
+      writeCatalog(next);
+      setCatalog(next);
+    } catch (error) {
+      alert((error as Error).message || "ลบไม่สำเร็จ");
+    }
+  }, [catalog]);
   const deleteWall    = useCallback((key: string) => { const next = { ...catalog, walls: catalog.walls.filter(w => w.key !== key) }; writeCatalog(next); setCatalog(next); }, [catalog]);
   const deleteFixture = useCallback((key: string) => { const next = { ...catalog, fixtures: catalog.fixtures.filter(f => f.key !== key) }; writeCatalog(next); setCatalog(next); }, [catalog]);
 
@@ -500,7 +555,7 @@ export default function CatalogPage() {
       </div>
 
       <div style={{ marginTop: "24px", fontSize: "12px", color: "var(--text-muted,#888)", textAlign: "center" }}>
-        ข้อมูลบันทึกใน localStorage • เปิด <Link href="/planner" style={{ color: "var(--accent,#7c3aed)" }}>Floor Planner</Link> เพื่อใช้งาน
+        กระเบื้องบันทึกทั้ง API และ localStorage • กำแพง/หน้าต่าง-ประตูบันทึกใน localStorage • เปิด <Link href="/planner" style={{ color: "var(--accent,#7c3aed)" }}>Floor Planner</Link> เพื่อใช้งาน
       </div>
     </div>
   );
