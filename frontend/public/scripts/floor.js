@@ -312,8 +312,7 @@ function applyDesignState(state) {
     if (typeof state.tilePattern === 'string') tilePattern = state.tilePattern;
     if (typeof state.wallPattern === 'string') wallPattern = state.wallPattern;
     tileCellMode = !!state.tileCellMode;
-    const tcmBtn = document.getElementById('tileCellModeBtn');
-    if (tcmBtn) tcmBtn.textContent = tileCellMode ? '1 Cell = 1 แผ่น ✓' : '1 Cell = 1 แผ่น';
+    syncTileCellModeControls();
     cellSelectScope = state.cellSelectScope === 'single' ? 'single' : 'footprint';
     wallLayoutPreset = state.wallLayoutPreset === WALL_LAYOUT_FULL ? WALL_LAYOUT_FULL : WALL_LAYOUT_OPEN;
     if ([WALL_LAYOUT_OPEN, WALL_LAYOUT_FULL, WALL_LAYOUT_CUSTOM].includes(state.wallLayoutMode)) {
@@ -897,6 +896,35 @@ function syncWallPerPieceToggle() {
     const input = document.getElementById('wallPerPieceToggle');
     if (!input) return;
     input.checked = wallSinglePaintMode;
+}
+
+function syncTileCellModeControls() {
+    const onInput = document.getElementById('tileCellModeOn');
+    if (onInput) onInput.checked = tileCellMode;
+
+    const offInput = document.getElementById('tileCellModeOff');
+    if (offInput) offInput.checked = !tileCellMode;
+
+    const btn = document.getElementById('tileCellModeBtn');
+    if (btn) {
+        btn.textContent = tileCellMode ? '1 Cell = 1 แผ่น ✓' : '1 Cell = 1 แผ่น';
+        btn.setAttribute('aria-pressed', tileCellMode ? 'true' : 'false');
+    }
+}
+
+function setTileCellModeEnabled(enabled, { recordHistory = true } = {}) {
+    const nextMode = !!enabled;
+    if (tileCellMode === nextMode) {
+        syncTileCellModeControls();
+        return;
+    }
+
+    tileCellMode = nextMode;
+    syncTileCellModeControls();
+    build3D();
+    if (recordHistory) {
+        recordHistorySnapshot();
+    }
 }
 
 function renderFixtureSwatches() {
@@ -1958,11 +1986,11 @@ window.clearCellSelection = function() {
 }
 
 window.toggleTileCellMode = function() {
-    tileCellMode = !tileCellMode;
-    const btn = document.getElementById('tileCellModeBtn');
-    if (btn) btn.textContent = tileCellMode ? '1 Cell = 1 แผ่น ✓' : '1 Cell = 1 แผ่น';
-    build3D();
-    recordHistorySnapshot();
+    setTileCellModeEnabled(!tileCellMode, { recordHistory: true });
+};
+
+window.setTileCellMode = function(enabled) {
+    setTileCellModeEnabled(enabled, { recordHistory: true });
 };
 
 window.setTileOffsetMode = function(enabled) {
@@ -3235,6 +3263,21 @@ if (wallHeightInput) {
     });
 }
 
+const tileCellModeOnInput = document.getElementById('tileCellModeOn');
+const tileCellModeOffInput = document.getElementById('tileCellModeOff');
+if (tileCellModeOnInput) {
+    tileCellModeOnInput.addEventListener('change', (event) => {
+        if (!event.target?.checked) return;
+        setTileCellModeEnabled(true, { recordHistory: true });
+    });
+}
+if (tileCellModeOffInput) {
+    tileCellModeOffInput.addEventListener('change', (event) => {
+        if (!event.target?.checked) return;
+        setTileCellModeEnabled(false, { recordHistory: true });
+    });
+}
+
 const gridWInput = document.getElementById('gridW');
 const gridHInput = document.getElementById('gridH');
 if (gridWInput && gridHInput) {
@@ -3314,6 +3357,7 @@ renderWallSwatches();
 renderTileSwatches();
 syncWallPerPieceToggle();
 syncTilePerPieceToggle();
+syncTileCellModeControls();
 
 // ─── Catalog persistence (separate from autosave) ─────────────────────────────
 const CATALOG_KEY = 'pm69-floorplanner:catalog:v1';

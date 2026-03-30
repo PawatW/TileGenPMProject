@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -12,6 +12,90 @@ type SelectedEl =
 
 const SIDE_LABELS: Record<string, string> = { top: "บน", bottom: "ล่าง", left: "ซ้าย", right: "ขวา" };
 const ROT_LABELS = ["0°", "90°", "180°", "270°"];
+
+type InfoTooltipProps = {
+  label: string;
+  description: string;
+};
+
+function InfoTooltip({ label, description }: InfoTooltipProps) {
+  const tooltipId = useId();
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const [isPinned, setIsPinned] = useState(false);
+
+  useEffect(() => {
+    if (!isPinned) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!wrapperRef.current?.contains(target)) {
+        setIsPinned(false);
+        setIsOpen(false);
+      }
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsPinned(false);
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isPinned]);
+
+  const showTooltip = () => {
+    if (!isPinned) setIsOpen(true);
+  };
+
+  const hideTooltip = () => {
+    if (!isPinned) setIsOpen(false);
+  };
+
+  return (
+    <div
+      ref={wrapperRef}
+      className={`info-tooltip-wrap ${isOpen ? "is-open" : ""}`}
+      onMouseEnter={showTooltip}
+      onMouseLeave={hideTooltip}
+    >
+      <button
+        type="button"
+        className="info-trigger"
+        aria-label={`รายละเอียดเพิ่มเติม: ${label}`}
+        aria-expanded={isOpen}
+        aria-controls={tooltipId}
+        onFocus={showTooltip}
+        onBlur={hideTooltip}
+        onClick={() => {
+          if (isPinned) {
+            setIsPinned(false);
+            setIsOpen(false);
+            return;
+          }
+          setIsPinned(true);
+          setIsOpen(true);
+        }}
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <circle cx="8" cy="8" r="7"></circle>
+          <line x1="8" y1="7" x2="8" y2="11"></line>
+          <circle cx="8" cy="4.6" r="0.9" fill="currentColor" stroke="none"></circle>
+        </svg>
+      </button>
+      <span id={tooltipId} role="tooltip" className="info-tooltip-text" aria-hidden={!isOpen}>
+        {description}
+      </span>
+    </div>
+  );
+}
 
 export default function PlannerPage() {
   const { user, isLoading } = useAuth();
@@ -217,8 +301,14 @@ export default function PlannerPage() {
             </div>
           </div>
           {/* Cell select mode */}
-          <div className="toggle-row" style={{ marginTop: "8px", border: "none", padding: 0 }}>
-            <span className="toggle-label" style={{ fontSize: "12px" }}>โหมดเลือก Cell</span>
+          <div className="toggle-row toggle-row-plain" style={{ marginTop: "8px" }}>
+            <div className="toggle-label-with-info">
+              <span className="toggle-label">โหมดเลือก Cell</span>
+              <InfoTooltip
+                label="โหมดเลือก Cell"
+                description="เลือกโหมดได้ทั้งแบบตามขนาดกระเบื้องหรือทีละ Cell และจะมี preview พื้นที่ก่อนคลิก"
+              />
+            </div>
             <label className="switch">
               <input type="checkbox" checked={cellSelect} onChange={(e) => {
                 const v = (e.target as HTMLInputElement).checked;
@@ -267,9 +357,8 @@ export default function PlannerPage() {
               </div>
             </>
           )}
-          <p className="hint" style={{ marginTop: "2px" }}>เลือกโหมดได้ทั้งแบบตามขนาดกระเบื้องหรือทีละ Cell และจะมี preview พื้นที่ก่อนคลิก</p>
 
-          <div className="toggle-row" style={{ marginTop: "12px", border: "none", padding: 0 }}>
+          <div className="toggle-row toggle-row-plain" style={{ marginTop: "12px" }}>
             <span className="toggle-label" style={{ fontSize: "12px" }}>โหมดกระจก (คลิกเพื่อพลิก)</span>
             <label className="switch">
               <input
@@ -279,8 +368,14 @@ export default function PlannerPage() {
               <span className="switch-track"></span>
             </label>
           </div>
-          <div className="toggle-row" style={{ marginTop: "8px", border: "none", padding: 0 }}>
-            <span className="toggle-label" style={{ fontSize: "12px" }}>โหมดลากขยับตำแหน่งกระเบื้อง</span>
+          <div className="toggle-row toggle-row-plain" style={{ marginTop: "8px" }}>
+            <div className="toggle-label-with-info">
+              <span className="toggle-label">โหมดลากขยับตำแหน่งกระเบื้อง</span>
+              <InfoTooltip
+                label="โหมดลากขยับตำแหน่งกระเบื้อง"
+                description="เปิดโหมดแล้วลากบนพื้นเพื่อขยับตำแหน่ง joint (ถ้าเปิดโหมดเลือก Cell จะลากเฉพาะที่เลือก และ snap ทุก 25% ของด้านยาวกระเบื้อง)"
+              />
+            </div>
             <label className="switch">
               <input
                 type="checkbox"
@@ -297,11 +392,16 @@ export default function PlannerPage() {
               รีเซ็ต offset
             </button>
           </div>
-          <p className="hint" style={{ marginTop: "4px" }}>เปิดโหมดแล้วลากบนพื้นเพื่อขยับตำแหน่ง joint (ถ้าเปิดโหมดเลือก Cell จะลากเฉพาะที่เลือก และ snap ทุก 25% ของด้านยาวกระเบื้อง)</p>
           <label className="field-label" style={{ marginTop: "12px" }}>ลายกระเบื้อง</label>
           <div id="tileSwatches" className="swatch-grid"></div>
           <div className="toggle-row" style={{ marginTop: "12px" }}>
-            <span className="toggle-label">ทาทีละแผ่น</span>
+            <div className="toggle-label-with-info">
+              <span className="toggle-label">ทาทีละแผ่น</span>
+              <InfoTooltip
+                label="ทาทีละแผ่น"
+                description="เมื่อเปิดโหมดนี้ สามารถคลิกซ้ายค้างแล้วลากเพื่อทากระเบื้องตามเมาส์ได้ทันที"
+              />
+            </div>
             <label className="switch">
               <input
                 type="checkbox"
@@ -311,16 +411,25 @@ export default function PlannerPage() {
               <span className="switch-track"></span>
             </label>
           </div>
-          <p className="hint" style={{ marginTop: "4px" }}>เมื่อเปิดโหมดนี้ สามารถคลิกซ้ายค้างแล้วลากเพื่อทากระเบื้องตามเมาส์ได้ทันที</p>
-          <button
-            id="tileCellModeBtn"
-            className="btn-outline"
-            style={{ marginTop: "8px", width: "100%", justifyContent: "center" }}
-            onClick={() => (window as any).toggleTileCellMode?.()}
-          >
-            1 Cell = 1 แผ่น
-          </button>
-          <p className="hint" style={{ marginTop: "4px" }}>เปิดเพื่อให้แต่ละช่องตารางแสดงกระเบื้อง 1 แผ่นพอดี</p>
+          <div className="toggle-row toggle-row-plain" style={{ marginTop: "10px", marginBottom: "6px" }}>
+            <div className="toggle-label-with-info">
+              <span className="toggle-label">1 Cell = 1 แผ่น</span>
+              <InfoTooltip
+                label="1 Cell = 1 แผ่น"
+                description="เปิดเพื่อให้แต่ละช่องตารางแสดงกระเบื้อง 1 แผ่นพอดี"
+              />
+            </div>
+          </div>
+          <div className="mode-radio-group" role="radiogroup" aria-label="โหมด 1 Cell ต่อ 1 แผ่น">
+            <label className="mode-radio-option">
+              <input type="radio" id="tileCellModeOff" name="tileCellMode" defaultChecked />
+              <span>ปิด</span>
+            </label>
+            <label className="mode-radio-option">
+              <input type="radio" id="tileCellModeOn" name="tileCellMode" />
+              <span>เปิด</span>
+            </label>
+          </div>
         </div>
 
         {/* Section: Fixtures */}
