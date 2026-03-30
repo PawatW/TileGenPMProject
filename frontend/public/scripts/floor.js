@@ -277,7 +277,7 @@ function serializeDesignState() {
     }) ?? [];
 
     return {
-        schemaVersion: 4,
+        schemaVersion: 5,
         gridWidth,
         gridHeight,
         wallHeight: Number(wallHeight),
@@ -293,9 +293,6 @@ function serializeDesignState() {
         flipData,
         floorTextureData,
         wallTextureData,
-        customTiles: tilePatternList.filter(t => t.key.startsWith('custom_') && !t.key.startsWith('custom_wall_')),
-        customWalls: wallTextureList.filter(w => w.key.startsWith('custom_wall_')),
-        customFixtures: fixtureCatalog.filter(f => f.key.startsWith('custom_fixture_')),
         removedWalls: Array.from(removedWalls),
         tileOffsets,
         tileCellOffsets,
@@ -344,38 +341,6 @@ function applyDesignState(state) {
     }));
     flipData = normalizeGrid2D(state.flipData, gridWidth, gridHeight, 0).map(col => col.map(v => (v ? 1 : 0)));
 
-    if (Array.isArray(state.customTiles)) {
-        state.customTiles.forEach(customTile => {
-            if (!tilePatternList.some(t => t.key === customTile.key)) {
-                tilePatternList.push(customTile);
-                tileTextures[customTile.key] = loadImageTileTexture(customTile.url, 2);
-            }
-        });
-        renderTileSwatches();
-    }
-
-    if (Array.isArray(state.customWalls)) {
-        state.customWalls.forEach(entry => {
-            if (!wallTextureList.some(w => w.key === entry.key)) {
-                wallTextureList.push(entry);
-                const mat = loadImageWallMaterial(entry.url, entry.repeatX ?? 2, entry.repeatYPerMeter ?? 1, 0);
-                mat.userData = { repeatX: entry.repeatX ?? 2, repeatYPerMeter: entry.repeatYPerMeter ?? 1 };
-                wallMaterials[entry.key] = mat;
-            }
-        });
-        renderWallTextureOptions();
-        renderWallSwatches();
-    }
-
-    if (Array.isArray(state.customFixtures)) {
-        state.customFixtures.forEach(entry => {
-            if (!fixtureCatalog.some(f => f.key === entry.key)) {
-                fixtureCatalog.push(entry);
-            }
-        });
-        renderFixtureSwatches();
-    }
-
     floorTextureData = state.floorTextureData || {};
     wallTextureData = state.wallTextureData || {};
     if (state.tileOffsets && typeof state.tileOffsets === 'object') {
@@ -400,6 +365,19 @@ function applyDesignState(state) {
     }
     tileBrush = state.tilePattern;
     wallBrush = state.wallPattern;
+
+    if (!tilePatternList.some(item => item.key === tilePattern)) {
+        tilePattern = 'devonoir_graphite';
+    }
+    if (!wallTextureList.some(item => item.key === wallPattern)) {
+        wallPattern = 'paint';
+    }
+    if (tileBrush && !tilePatternList.some(item => item.key === tileBrush)) {
+        tileBrush = null;
+    }
+    if (wallBrush && !wallTextureList.some(item => item.key === wallBrush)) {
+        wallBrush = null;
+    }
     tileSinglePaintMode = false;
     wallSinglePaintMode = false;
     syncTilePerPieceToggle();
@@ -881,7 +859,7 @@ function renderWallSwatches() {
 
         if (type === 'canvas' && canvas) {
             swatch.style.backgroundImage = `url(${canvas.toDataURL()})`;
-        } else if (type === 'image' && url) {
+        } else if ((type === 'image' || (!type && url)) && url) {
             swatch.style.backgroundImage = `url(${resolveAssetUrl(url)})`;
         } else if (type === 'solid') {
             const hex = `#${color.toString(16).padStart(6, '0')}`;
@@ -3500,56 +3478,174 @@ syncTileCellModeControls();
 // ─── Catalog persistence (separate from autosave) ─────────────────────────────
 const CATALOG_KEY = 'pm69-floorplanner:catalog:v1';
 
+function isCustomTileKey(key) {
+    return typeof key === 'string' && key.startsWith('custom_') && !key.startsWith('custom_wall_');
+}
+
+function isCustomWallKey(key) {
+    return typeof key === 'string' && key.startsWith('custom_wall_');
+}
+
+function isCustomFixtureKey(key) {
+    return typeof key === 'string' && key.startsWith('custom_fixture_');
+}
+
+function dedupeCatalogEntries(items, signatureFn) {
+    const seenKeys = new Set();
+    const seenSignatures = new Set();
+    const result = [];
+
+    (Array.isArray(items) ? items : []).forEach((item) => {
+        if (!item || typeof item !== 'object') return;
+        const key = typeof item.key === 'string' ? item.key : null;
+        if (!key || seenKeys.has(key)) return;
+
+        const signature = signatureFn(item);
+        if (seenSignatures.has(signature)) return;
+
+        seenKeys.add(key);
+        seenSignatures.add(signature);
+        result.push(item);
+    });
+
+    return result;
+}
+
+function normalizeCatalogPayload(payload) {
+    const normalizedTiles = dedupeCatalogEntries(
+        (Array.isArray(payload?.tiles) ? payload.tiles : [])
+            .map((item) => ({ ...item, type: 'image' }))
+            .filter((item) => typeof item.key === 'string' && typeof item.label === 'string' && typeof item.url === 'string'),
+        (item) => {
+            const width = Number(item.width || 0);
+            const length = Number(item.length || 0);
+            const unit = String(item.unit || 'cm').toLowerCase();
+            const price = Number(item.pricePerBox || 0);
+            const perBox = Number(item.tilesPerBox || 0);
+            return `tile|${String(item.label).trim().toLowerCase()}|${item.url}|${width}|${length}|${unit}|${price}|${perBox}`;
+        }
+    );
+
+    const normalizedWalls = dedupeCatalogEntries(
+        (Array.isArray(payload?.walls) ? payload.walls : [])
+            .map((item) => ({ ...item, type: 'image' }))
+            .filter((item) => typeof item.key === 'string' && typeof item.label === 'string' && typeof item.url === 'string'),
+        (item) => {
+            const repeatX = Number(item.repeatX || 2);
+            const repeatY = Number(item.repeatYPerMeter || 1);
+            return `wall|${String(item.label).trim().toLowerCase()}|${item.url}|${repeatX}|${repeatY}`;
+        }
+    );
+
+    const normalizedFixtures = dedupeCatalogEntries(
+        (Array.isArray(payload?.fixtures) ? payload.fixtures : [])
+            .filter((item) => typeof item.key === 'string' && typeof item.label === 'string'),
+        (item) => {
+            const renderAs = item.renderAs === 'window' ? 'window' : 'door';
+            const width = Number(item.width || 0);
+            const height = Number(item.height || 0);
+            const depth = Number(item.depth || 0);
+            return `fixture|${String(item.label).trim().toLowerCase()}|${renderAs}|${width}|${height}|${depth}`;
+        }
+    );
+
+    return {
+        tiles: normalizedTiles,
+        walls: normalizedWalls,
+        fixtures: normalizedFixtures,
+    };
+}
+
+function applyCatalogPayload(catalog) {
+    for (let i = tilePatternList.length - 1; i >= 0; i -= 1) {
+        const key = tilePatternList[i]?.key;
+        if (isCustomTileKey(key)) {
+            if (tileTextures[key]?.dispose) tileTextures[key].dispose();
+            delete tileTextures[key];
+            tilePatternList.splice(i, 1);
+        }
+    }
+
+    for (let i = wallTextureList.length - 1; i >= 0; i -= 1) {
+        const key = wallTextureList[i]?.key;
+        if (isCustomWallKey(key)) {
+            const mat = wallMaterials[key];
+            if (mat?.map?.dispose) mat.map.dispose();
+            if (mat?.dispose) mat.dispose();
+            delete wallMaterials[key];
+            wallTextureList.splice(i, 1);
+        }
+    }
+
+    for (let i = fixtureCatalog.length - 1; i >= 0; i -= 1) {
+        const key = fixtureCatalog[i]?.key;
+        if (isCustomFixtureKey(key)) {
+            fixtureCatalog.splice(i, 1);
+        }
+    }
+
+    catalog.tiles.forEach((item) => {
+        tilePatternList.push(item);
+        if (item.url) {
+            tileTextures[item.key] = loadImageTileTexture(item.url, 2);
+        }
+    });
+
+    catalog.walls.forEach((item) => {
+        wallTextureList.push(item);
+        const mat = loadImageWallMaterial(item.url, item.repeatX ?? 2, item.repeatYPerMeter ?? 1, 0);
+        mat.userData = { repeatX: item.repeatX ?? 2, repeatYPerMeter: item.repeatYPerMeter ?? 1 };
+        wallMaterials[item.key] = mat;
+    });
+
+    catalog.fixtures.forEach((item) => {
+        fixtureCatalog.push(item);
+    });
+
+    if (!tilePatternList.some((item) => item.key === tilePattern)) {
+        tilePattern = 'devonoir_graphite';
+    }
+    if (!wallTextureList.some((item) => item.key === wallPattern)) {
+        wallPattern = 'paint';
+    }
+    if (tileBrush && !tilePatternList.some((item) => item.key === tileBrush)) {
+        tileBrush = null;
+    }
+    if (wallBrush && !wallTextureList.some((item) => item.key === wallBrush)) {
+        wallBrush = null;
+    }
+    if (placementMode && !fixtureCatalog.some((item) => item.key === placementMode)) {
+        placementMode = null;
+    }
+}
+
 function loadCatalog() {
     try {
         const raw = window.localStorage?.getItem(CATALOG_KEY);
-        if (!raw) return;
-        const catalog = JSON.parse(raw);
-        if (Array.isArray(catalog.tiles)) {
-            catalog.tiles.forEach(item => {
-                const normalizedItem = {
-                    ...item,
-                    type: item.type || 'image',
-                };
-                if (!tilePatternList.some(t => t.key === normalizedItem.key)) {
-                    tilePatternList.push(normalizedItem);
-                    if (normalizedItem.type === 'image' && normalizedItem.url) {
-                        tileTextures[normalizedItem.key] = loadImageTileTexture(normalizedItem.url, 2);
-                    }
-                }
-            });
-            renderTileSwatches();
+        const parsed = raw ? JSON.parse(raw) : { tiles: [], walls: [], fixtures: [] };
+        const normalized = normalizeCatalogPayload(parsed);
+        const normalizedRaw = JSON.stringify(normalized);
+
+        // Canonicalize localStorage so stale duplicates are cleaned once loaded.
+        if (raw !== normalizedRaw) {
+            window.localStorage?.setItem(CATALOG_KEY, normalizedRaw);
         }
-        if (Array.isArray(catalog.walls)) {
-            catalog.walls.forEach(item => {
-                if (!wallTextureList.some(w => w.key === item.key)) {
-                    wallTextureList.push(item);
-                    const mat = loadImageWallMaterial(item.url, item.repeatX ?? 2, item.repeatYPerMeter ?? 1, 0);
-                    mat.userData = { repeatX: item.repeatX ?? 2, repeatYPerMeter: item.repeatYPerMeter ?? 1 };
-                    wallMaterials[item.key] = mat;
-                }
-            });
-            renderWallTextureOptions();
-            renderWallSwatches();
-        }
-        if (Array.isArray(catalog.fixtures)) {
-            catalog.fixtures.forEach(item => {
-                if (!fixtureCatalog.some(f => f.key === item.key)) {
-                    fixtureCatalog.push(item);
-                }
-            });
-            renderFixtureSwatches();
-        }
+
+        applyCatalogPayload(normalized);
+        renderTileSwatches();
+        renderWallTextureOptions();
+        renderWallSwatches();
+        renderFixtureSwatches();
     } catch(e) {}
 }
 
 function saveCatalog() {
     try {
-        const catalog = {
+        const catalog = normalizeCatalogPayload({
             tiles: tilePatternList.filter(t => t.key.startsWith('custom_') && !t.key.startsWith('custom_wall_')),
             walls: wallTextureList.filter(w => w.key.startsWith('custom_wall_')),
             fixtures: fixtureCatalog.filter(f => f.key.startsWith('custom_fixture_'))
-        };
+        });
         window.localStorage?.setItem(CATALOG_KEY, JSON.stringify(catalog));
     } catch(e) {}
 }

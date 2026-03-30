@@ -30,9 +30,17 @@ def create_app() -> Flask:
     from routes.catalog import bp as catalog_bp
     from routes.designs import bp as designs_bp
     from routes.images import bp as images_bp
+    from routes.planner_catalog import bp as planner_catalog_bp
     from routes.quotations import bp as quotations_bp
 
-    for blueprint in (auth_bp, designs_bp, catalog_bp, quotations_bp, images_bp):
+    for blueprint in (
+        auth_bp,
+        designs_bp,
+        catalog_bp,
+        planner_catalog_bp,
+        quotations_bp,
+        images_bp,
+    ):
         app.register_blueprint(blueprint)
 
     return app

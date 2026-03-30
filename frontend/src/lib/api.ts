@@ -90,6 +90,27 @@ export interface CatalogItem {
   createdAt: string;
 }
 
+export type PlannerCatalogType = "tile" | "wall" | "fixture";
+
+export interface PlannerCatalogEntry {
+  key: string;
+  label: string;
+  dbId?: string;
+  [key: string]: unknown;
+}
+
+export interface PlannerCatalogPayload {
+  tiles: PlannerCatalogEntry[];
+  walls: PlannerCatalogEntry[];
+  fixtures: PlannerCatalogEntry[];
+}
+
+const EMPTY_PLANNER_CATALOG: PlannerCatalogPayload = {
+  tiles: [],
+  walls: [],
+  fixtures: [],
+};
+
 export async function apiGetCatalog(): Promise<CatalogItem[]> {
   const res = await apiFetch("/api/catalog");
   if (!res.ok) return [];
@@ -123,6 +144,40 @@ export async function apiUpdateCatalogItem(
 
 export async function apiDeleteCatalogItem(id: string): Promise<void> {
   const res = await apiFetch(`/api/catalog/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { error?: string }).error || "ลบไม่สำเร็จ");
+  }
+}
+
+// ── planner catalog ──────────────────────────────────────────────────────────
+
+export async function apiGetPlannerCatalog(): Promise<PlannerCatalogPayload> {
+  const res = await apiFetch("/api/planner/catalog");
+  if (!res.ok) return EMPTY_PLANNER_CATALOG;
+  const data = (await res.json()) as Partial<PlannerCatalogPayload>;
+  return {
+    tiles: Array.isArray(data.tiles) ? data.tiles : [],
+    walls: Array.isArray(data.walls) ? data.walls : [],
+    fixtures: Array.isArray(data.fixtures) ? data.fixtures : [],
+  };
+}
+
+export async function apiCreatePlannerCatalogItem(
+  type: PlannerCatalogType,
+  item: PlannerCatalogEntry
+): Promise<PlannerCatalogEntry> {
+  const res = await apiFetch("/api/planner/catalog", {
+    method: "POST",
+    body: JSON.stringify({ type, item }),
+  });
+  const data = (await res.json()) as { error?: string; item?: PlannerCatalogEntry };
+  if (!res.ok) throw new Error(data.error || "บันทึกไม่สำเร็จ");
+  return data.item ?? item;
+}
+
+export async function apiDeletePlannerCatalogItem(id: string): Promise<void> {
+  const res = await apiFetch(`/api/planner/catalog/${id}`, { method: "DELETE" });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error((data as { error?: string }).error || "ลบไม่สำเร็จ");

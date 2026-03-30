@@ -3,6 +3,26 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { getPlannerCatalog } from "@/lib/storage";
+
+const CATALOG_KEY = "pm69-floorplanner:catalog:v1";
+
+function dedupeEntries<T extends { key: string }>(items: T[], signature: (item: T) => string): T[] {
+  const seenKeys = new Set<string>();
+  const seenSignatures = new Set<string>();
+  const output: T[] = [];
+
+  items.forEach((item) => {
+    if (!item?.key || seenKeys.has(item.key)) return;
+    const sig = signature(item);
+    if (seenSignatures.has(sig)) return;
+    seenKeys.add(item.key);
+    seenSignatures.add(sig);
+    output.push(item);
+  });
+
+  return output;
+}
 
 type SelectedEl =
   | {
@@ -126,25 +146,92 @@ export default function PlannerPage() {
   useEffect(() => {
     if (!user) return;
 
-    // Remove only the Three.js <canvas> appended by the previous floor.js instance.
-    // Do NOT clear innerHTML — that would wipe React-rendered children (draft-toolbar, etc.)
-    const container = document.getElementById("canvas-container");
-    if (container) container.querySelectorAll("canvas").forEach((c) => c.remove());
+    let mountedScript: HTMLScriptElement | null = null;
+    let isDisposed = false;
 
-    // ถ้ามาจาก dashboard พร้อม ?slot=N ให้ auto-load slot นั้น
-    const params = new URLSearchParams(window.location.search);
-    const slot = params.get("slot");
-    if (slot) (window as any).__autoLoadSlot = slot;
+    const bootPlanner = async () => {
+      // Remove only the Three.js <canvas> appended by the previous floor.js instance.
+      // Do NOT clear innerHTML — that would wipe React-rendered children (draft-toolbar, etc.)
+      const container = document.getElementById("canvas-container");
+      if (container) container.querySelectorAll("canvas").forEach((c) => c.remove());
 
-    // Cache-bust the URL so the browser re-executes the ES module on every
-    // user change (browsers cache modules by URL and skip re-execution otherwise).
-    const script = document.createElement("script");
-    script.type = "module";
-    script.src = `/scripts/floor.js?v=${Date.now()}`;
-    document.body.appendChild(script);
+      // Prime localStorage cache from DB before floor.js starts reading CATALOG_KEY.
+      try {
+        const remoteCatalog = await getPlannerCatalog();
+        const normalizedCatalog = {
+          tiles: Array.isArray(remoteCatalog.tiles)
+            ? dedupeEntries(
+                remoteCatalog.tiles.map((item) => ({ ...item, type: "image" })),
+                (item) => {
+                  const entry = item as Record<string, unknown>;
+                  return [
+                    String(entry.label ?? "").trim().toLowerCase(),
+                    String(entry.url ?? ""),
+                    String(entry.width ?? ""),
+                    String(entry.length ?? ""),
+                    String(entry.unit ?? ""),
+                    String(entry.pricePerBox ?? ""),
+                    String(entry.tilesPerBox ?? ""),
+                  ].join("|");
+                }
+              )
+            : [],
+          walls: Array.isArray(remoteCatalog.walls)
+            ? dedupeEntries(
+                remoteCatalog.walls.map((item) => ({ ...item, type: "image" })),
+                (item) => {
+                  const entry = item as Record<string, unknown>;
+                  return [
+                    String(entry.label ?? "").trim().toLowerCase(),
+                    String(entry.url ?? ""),
+                    String(entry.repeatX ?? ""),
+                    String(entry.repeatYPerMeter ?? ""),
+                  ].join("|");
+                }
+              )
+            : [],
+          fixtures: Array.isArray(remoteCatalog.fixtures)
+            ? dedupeEntries(
+                remoteCatalog.fixtures,
+                (item) => {
+                  const entry = item as Record<string, unknown>;
+                  return [
+                    String(entry.label ?? "").trim().toLowerCase(),
+                    String(entry.renderAs ?? ""),
+                    String(entry.width ?? ""),
+                    String(entry.height ?? ""),
+                    String(entry.depth ?? ""),
+                  ].join("|");
+                }
+              )
+            : [],
+        };
+        localStorage.setItem(CATALOG_KEY, JSON.stringify(normalizedCatalog));
+      } catch {
+        // Keep planner usable with existing local cache when API is unavailable.
+      }
+
+      if (isDisposed) return;
+
+      // ถ้ามาจาก dashboard พร้อม ?slot=N ให้ auto-load slot นั้น
+      const params = new URLSearchParams(window.location.search);
+      const slot = params.get("slot");
+      if (slot) (window as any).__autoLoadSlot = slot;
+
+      // Cache-bust the URL so the browser re-executes the ES module on every
+      // user change (browsers cache modules by URL and skip re-execution otherwise).
+      mountedScript = document.createElement("script");
+      mountedScript.type = "module";
+      mountedScript.src = `/scripts/floor.js?v=${Date.now()}`;
+      document.body.appendChild(mountedScript);
+    };
+
+    void bootPlanner();
+
     return () => {
-      if (document.body.contains(script)) {
-        document.body.removeChild(script);
+      isDisposed = true;
+      if (mountedScript && document.body.contains(mountedScript)) {
+        document.body.removeChild(mountedScript);
       }
     };
   }, [user]);

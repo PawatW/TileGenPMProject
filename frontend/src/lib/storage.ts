@@ -10,11 +10,18 @@ import {
   apiCreateCatalogItem,
   apiUpdateCatalogItem,
   apiDeleteCatalogItem,
+  apiGetPlannerCatalog,
+  apiCreatePlannerCatalogItem,
+  apiDeletePlannerCatalogItem,
   apiListDesignSlots,
   type CatalogItem,
+  type PlannerCatalogEntry,
+  type PlannerCatalogPayload,
+  type PlannerCatalogType,
 } from "./api";
 
 export type { CatalogItem };
+export type { PlannerCatalogEntry, PlannerCatalogPayload, PlannerCatalogType };
 
 export async function getCatalog(): Promise<CatalogItem[]> {
   return apiGetCatalog();
@@ -35,6 +42,21 @@ export async function updateCatalogItem(
 
 export async function deleteCatalogItem(id: string): Promise<void> {
   await apiDeleteCatalogItem(id);
+}
+
+export async function getPlannerCatalog(): Promise<PlannerCatalogPayload> {
+  return apiGetPlannerCatalog();
+}
+
+export async function addPlannerCatalogItem(
+  type: PlannerCatalogType,
+  item: PlannerCatalogEntry
+): Promise<PlannerCatalogEntry> {
+  return apiCreatePlannerCatalogItem(type, item);
+}
+
+export async function deletePlannerCatalogItem(id: string): Promise<void> {
+  await apiDeletePlannerCatalogItem(id);
 }
 
 // ── Draft slot metadata ───────────────────────────────────────────────────────
