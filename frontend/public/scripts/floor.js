@@ -2908,10 +2908,18 @@ function onCanvasClick(event) {
 
             const targetBrush = tileBrush || tilePattern;
             const currentPattern = data.unitPattern || floorTextureData[`${clickedGx},${clickedGy}`] || tilePattern;
-            const clickedUnitOverride = data.unitKey ? tileUnitOverrides[data.unitKey] : null;
+            let clickedUnitOverride = data.unitKey ? tileUnitOverrides[data.unitKey] : null;
+
+            const getClickedFootprintUnit = () => {
+                return computeTileSelectionUnit(hit.point.x, hit.point.z, currentPattern, clickedGx, clickedGy);
+            };
 
             if (tileFlipMode) {
                 if (clickedUnitOverride) {
+                    clickedUnitOverride.flip = !clickedUnitOverride.flip;
+                } else if (tilePaintMode === 'footprint') {
+                    const flipUnit = getClickedFootprintUnit();
+                    clickedUnitOverride = ensureTileUnitOverride(flipUnit, currentPattern);
                     clickedUnitOverride.flip = !clickedUnitOverride.flip;
                 } else {
                     // โหมดกระจก: สลับ flip เฉพาะ cell ที่คลิก
@@ -2919,6 +2927,10 @@ function onCanvasClick(event) {
                 }
             } else if (currentPattern === targetBrush) {
                 if (clickedUnitOverride) {
+                    clickedUnitOverride.rotation = (((Math.round(Number(clickedUnitOverride.rotation) || 0) + 1) % 4) + 4) % 4;
+                } else if (tilePaintMode === 'footprint') {
+                    const rotateUnit = getClickedFootprintUnit();
+                    clickedUnitOverride = ensureTileUnitOverride(rotateUnit, currentPattern);
                     clickedUnitOverride.rotation = (((Math.round(Number(clickedUnitOverride.rotation) || 0) + 1) % 4) + 4) % 4;
                 } else {
                     // คลิก cell ที่มีลายเดิมอยู่แล้ว → หมุนเฉพาะ cell นั้น
@@ -2944,7 +2956,7 @@ function onCanvasClick(event) {
             // Dispatch selection event for inspector panel
             document.dispatchEvent(new CustomEvent('pmElementSelected', { detail: {
                 type: 'tile', x: clickedGx, y: clickedGy,
-                patternKey: data.unitPattern || floorTextureData[`${clickedGx},${clickedGy}`] || tilePattern,
+                patternKey: clickedUnitOverride?.patternKey || data.unitPattern || floorTextureData[`${clickedGx},${clickedGy}`] || tilePattern,
                 rotation: clickedUnitOverride ? ((((Math.round(Number(clickedUnitOverride.rotation) || 0) % 4) + 4) % 4)) : (rotationData[clickedGx][clickedGy] || 0),
                 flip: clickedUnitOverride ? !!clickedUnitOverride.flip : !!(flipData[clickedGx][clickedGy])
             }}));
