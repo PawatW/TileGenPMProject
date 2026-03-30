@@ -460,7 +460,7 @@ export default function PlannerPage() {
               <span className="switch-track"></span>
             </label>
           </div>
-          <div className="toggle-row toggle-row-plain" style={{ marginTop: "10px", marginBottom: "6px" }}>
+          <div className="toggle-row" style={{ marginTop: "10px" }}>
             <div className="toggle-label-with-info">
               <span className="toggle-label">1 Cell = 1 แผ่น</span>
               <InfoTooltip
@@ -468,15 +468,13 @@ export default function PlannerPage() {
                 description="เปิดเพื่อให้แต่ละช่องตารางแสดงกระเบื้อง 1 แผ่นพอดี"
               />
             </div>
-          </div>
-          <div className="mode-radio-group" role="radiogroup" aria-label="โหมด 1 Cell ต่อ 1 แผ่น">
-            <label className="mode-radio-option">
-              <input type="radio" id="tileCellModeOff" name="tileCellMode" defaultChecked />
-              <span>ปิด</span>
-            </label>
-            <label className="mode-radio-option">
-              <input type="radio" id="tileCellModeOn" name="tileCellMode" />
-              <span>เปิด</span>
+            <label className="switch">
+              <input
+                type="checkbox"
+                id="tileCellModeToggle"
+                onChange={(e) => (window as any).setTileCellMode?.((e.target as HTMLInputElement).checked)}
+              />
+              <span className="switch-track"></span>
             </label>
           </div>
         </div>

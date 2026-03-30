@@ -140,10 +140,11 @@ body {
     gap: 8px;
     padding: 14px 20px 12px;
     border-bottom: 1px solid var(--border);
-    background: linear-gradient(180deg, rgba(var(--gold-rgb), 0.05) 0%, transparent 100%);
+    background: var(--surface-0);
     position: sticky;
     top: 0;
     z-index: 20;
+    box-shadow: 0 6px 12px -10px rgba(0,0,0,0.35);
 }
 
 .settings-tab-btn {
@@ -540,75 +541,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
         max-width: 220px;
         font-size: 11px;
     }
-}
-
-.mode-radio-group {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    margin-top: 0;
-}
-
-.mode-radio-option {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 9px 10px;
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border);
-    background: var(--surface-1);
-    color: var(--text-sec);
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.2px;
-    cursor: pointer;
-    transition: border-color 0.15s, background 0.15s, color 0.15s, box-shadow 0.15s;
-}
-
-.mode-radio-option:hover {
-    border-color: var(--border-strong);
-    color: var(--text);
-}
-
-.mode-radio-option input[type="radio"] {
-    appearance: none;
-    width: 13px;
-    height: 13px;
-    margin: 0;
-    border-radius: 50%;
-    border: 1px solid var(--border-strong);
-    background: var(--surface-0);
-    display: grid;
-    place-content: center;
-}
-
-.mode-radio-option input[type="radio"]::before {
-    content: "";
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    transform: scale(0);
-    transition: transform 0.14s ease;
-    background: var(--gold);
-}
-
-.mode-radio-option input[type="radio"]:checked {
-    border-color: rgba(var(--gold-rgb), 0.55);
-}
-
-.mode-radio-option input[type="radio"]:checked::before {
-    transform: scale(1);
-}
-
-.mode-radio-option:has(input[type="radio"]:checked) {
-    background: var(--gold-dim);
-    border-color: rgba(var(--gold-rgb), 0.35);
-    color: var(--gold);
-}
-
-.mode-radio-option:has(input[type="radio"]:focus-visible) {
-    box-shadow: 0 0 0 3px rgba(var(--gold-rgb), 0.14);
 }
 
 .switch {

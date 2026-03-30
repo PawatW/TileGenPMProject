@@ -899,6 +899,9 @@ function syncWallPerPieceToggle() {
 }
 
 function syncTileCellModeControls() {
+    const toggleInput = document.getElementById('tileCellModeToggle');
+    if (toggleInput) toggleInput.checked = tileCellMode;
+
     const onInput = document.getElementById('tileCellModeOn');
     if (onInput) onInput.checked = tileCellMode;
 
@@ -3263,18 +3266,10 @@ if (wallHeightInput) {
     });
 }
 
-const tileCellModeOnInput = document.getElementById('tileCellModeOn');
-const tileCellModeOffInput = document.getElementById('tileCellModeOff');
-if (tileCellModeOnInput) {
-    tileCellModeOnInput.addEventListener('change', (event) => {
-        if (!event.target?.checked) return;
-        setTileCellModeEnabled(true, { recordHistory: true });
-    });
-}
-if (tileCellModeOffInput) {
-    tileCellModeOffInput.addEventListener('change', (event) => {
-        if (!event.target?.checked) return;
-        setTileCellModeEnabled(false, { recordHistory: true });
+const tileCellModeToggleInput = document.getElementById('tileCellModeToggle');
+if (tileCellModeToggleInput) {
+    tileCellModeToggleInput.addEventListener('change', (event) => {
+        setTileCellModeEnabled(!!event.target?.checked, { recordHistory: true });
     });
 }
 
