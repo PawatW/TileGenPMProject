@@ -101,6 +101,7 @@ export default function PlannerPage() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
   const [paintMode, setPaintMode] = useState<"cell" | "footprint">("footprint");
+  const [activeSettingsTab, setActiveSettingsTab] = useState<"wall" | "tile" | "fixture">("wall");
   const [cellSelect, setCellSelect] = useState(false);
   const [cellSelectScope, setCellSelectScope] = useState<"single" | "footprint">("footprint");
   const [selectedEl, setSelectedEl] = useState<SelectedEl>(null);
@@ -197,8 +198,50 @@ export default function PlannerPage() {
           </div>
         </div>
 
+        <div className="settings-tabs" role="tablist" aria-label="หมวดการตั้งค่า">
+          <button
+            type="button"
+            role="tab"
+            id="settings-tab-wall"
+            className={`settings-tab-btn ${activeSettingsTab === "wall" ? "is-active" : ""}`}
+            aria-selected={activeSettingsTab === "wall"}
+            aria-controls="settings-panel-wall"
+            onClick={() => setActiveSettingsTab("wall")}
+          >
+            กำแพง
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="settings-tab-tile"
+            className={`settings-tab-btn ${activeSettingsTab === "tile" ? "is-active" : ""}`}
+            aria-selected={activeSettingsTab === "tile"}
+            aria-controls="settings-panel-tile"
+            onClick={() => setActiveSettingsTab("tile")}
+          >
+            กระเบื้อง
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="settings-tab-fixture"
+            className={`settings-tab-btn ${activeSettingsTab === "fixture" ? "is-active" : ""}`}
+            aria-selected={activeSettingsTab === "fixture"}
+            aria-controls="settings-panel-fixture"
+            onClick={() => setActiveSettingsTab("fixture")}
+          >
+            ประตู/หน้าต่าง
+          </button>
+        </div>
+
         {/* Section: Wall */}
-        <div className="panel-section">
+        <div
+          id="settings-panel-wall"
+          className="panel-section settings-tab-panel"
+          role="tabpanel"
+          aria-labelledby="settings-tab-wall"
+          hidden={activeSettingsTab !== "wall"}
+        >
           <div className="section-header">
             <span className="section-tag">02</span>
             <h3 className="section-title">กำแพง</h3>
@@ -257,7 +300,13 @@ export default function PlannerPage() {
         </div>
 
         {/* Section: Tile */}
-        <div className="panel-section">
+        <div
+          id="settings-panel-tile"
+          className="panel-section settings-tab-panel"
+          role="tabpanel"
+          aria-labelledby="settings-tab-tile"
+          hidden={activeSettingsTab !== "tile"}
+        >
           <div className="section-header">
             <span className="section-tag">03</span>
             <h3 className="section-title">กระเบื้อง</h3>
@@ -433,7 +482,13 @@ export default function PlannerPage() {
         </div>
 
         {/* Section: Fixtures */}
-        <div className="panel-section">
+        <div
+          id="settings-panel-fixture"
+          className="panel-section settings-tab-panel"
+          role="tabpanel"
+          aria-labelledby="settings-tab-fixture"
+          hidden={activeSettingsTab !== "fixture"}
+        >
           <div className="section-header">
             <span className="section-tag">04</span>
             <h3 className="section-title">หน้าต่าง &amp; ประตู</h3>

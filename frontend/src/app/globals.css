@@ -134,6 +134,53 @@ body {
     border-bottom: none;
 }
 
+.settings-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    padding: 14px 20px 12px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(var(--gold-rgb), 0.05) 0%, transparent 100%);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+}
+
+.settings-tab-btn {
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+    color: var(--text-sec);
+    border-radius: var(--radius-sm);
+    padding: 8px 8px;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.settings-tab-btn:hover {
+    border-color: var(--border-strong);
+    color: var(--text);
+}
+
+.settings-tab-btn.is-active {
+    background: var(--gold-dim);
+    border-color: rgba(var(--gold-rgb), 0.35);
+    color: var(--gold);
+}
+
+.settings-tab-btn:focus-visible {
+    outline: none;
+    border-color: rgba(var(--gold-rgb), 0.45);
+    box-shadow: 0 0 0 3px rgba(var(--gold-rgb), 0.12);
+}
+
+.settings-tab-panel {
+    border-top: none;
+}
+
 .section-header {
     display: flex;
     align-items: center;
