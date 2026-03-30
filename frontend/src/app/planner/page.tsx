@@ -321,47 +321,6 @@ export default function PlannerPage() {
             1 Cell = 1 แผ่น
           </button>
           <p className="hint" style={{ marginTop: "4px" }}>เปิดเพื่อให้แต่ละช่องตารางแสดงกระเบื้อง 1 แผ่นพอดี</p>
-          <button
-            id="runningBondBtn"
-            className="btn-outline"
-            style={{ marginTop: "8px", width: "100%", justifyContent: "center" }}
-            onClick={() => (window as any).toggleRunningBond?.()}
-          >
-            วางสลับ (Running Bond)
-          </button>
-          <p className="hint" style={{ marginTop: "4px" }}>วางสลับครึ่งแผ่น (Brick Bond) — เหมาะกับกระเบื้องไม้สี่เหลี่ยมผืนผ้า</p>
-
-          {/* ── Free Tile Mode ─────────────────────── */}
-          <div style={{ marginTop: "12px", padding: "10px", border: "1px solid var(--border)", borderRadius: "8px" }}>
-            <button
-              id="freeTileModeBtn"
-              className="btn-outline"
-              style={{ width: "100%", justifyContent: "center", fontWeight: 600 }}
-              onClick={() => (window as any).toggleFreeTileMode?.()}
-            >
-              วางอิสระ
-            </button>
-            <p className="hint" style={{ marginTop: "4px", marginBottom: "8px" }}>
-              เปิดโหมดนี้เพื่อวางกระเบื้องแต่ละแผ่นได้อย่างอิสระ ขนาดตามจริง
-            </p>
-            <div style={{ display: "flex", gap: "6px" }}>
-              <button className="btn-outline" style={{ flex: 1, fontSize: "11px", justifyContent: "center" }}
-                onClick={() => (window as any).fillFreeTiles?.('straight')}>
-                เติมห้อง (ตรง)
-              </button>
-              <button className="btn-outline" style={{ flex: 1, fontSize: "11px", justifyContent: "center" }}
-                onClick={() => (window as any).fillFreeTilesRunningBond?.()}>
-                เติมห้อง (สลับ)
-              </button>
-            </div>
-            <button className="btn-outline danger" style={{ marginTop: "6px", width: "100%", justifyContent: "center", fontSize: "11px" }}
-              onClick={() => (window as any).clearFreeTiles?.()}>
-              ล้างทั้งหมด
-            </button>
-            <p className="hint" style={{ marginTop: "6px" }}>
-              คลิกพื้น → วางแผ่น &nbsp;|&nbsp; คลิกแผ่น → เลือก &nbsp;|&nbsp; ลาก → เลื่อน &nbsp;|&nbsp; R → หมุน &nbsp;|&nbsp; Del → ลบ
-            </p>
-          </div>
         </div>
 
         {/* Section: Fixtures */}

@@ -83,7 +83,6 @@ const WALL_LAYOUT_CUSTOM = 'custom';
 let wallLayoutPreset = WALL_LAYOUT_OPEN;
 let wallLayoutMode = WALL_LAYOUT_OPEN;
 let tileCellMode = false; // true = 1 grid cell แสดง 1 แผ่นกระเบื้องพอดี
-let tileLayoutMode = 'world'; // 'world' | 'running_bond'  (running bond = วางสลับครึ่งแผ่น)
 let pricingSummary = {
     totalAreaSqm: 0,
     areaPerTile: 0,
@@ -282,10 +281,7 @@ function serializeDesignState() {
         wallLayoutPreset,
         wallLayoutMode,
         tileCellMode,
-        tileLayoutMode,
         cellSelectScope,
-        freeTileMode,
-        freeTilePlacements: freeTileMode ? [...freeTilePlacements] : [],
         gridData,
         rotationData,
         flipData,
@@ -318,15 +314,7 @@ function applyDesignState(state) {
     tileCellMode = !!state.tileCellMode;
     const tcmBtn = document.getElementById('tileCellModeBtn');
     if (tcmBtn) tcmBtn.textContent = tileCellMode ? '1 Cell = 1 แผ่น ✓' : '1 Cell = 1 แผ่น';
-    tileLayoutMode = state.tileLayoutMode === 'running_bond' ? 'running_bond' : 'world';
-    const rbBtn = document.getElementById('runningBondBtn');
-    if (rbBtn) rbBtn.textContent = tileLayoutMode === 'running_bond' ? 'วางสลับ (Running Bond) ✓' : 'วางสลับ (Running Bond)';
     cellSelectScope = state.cellSelectScope === 'single' ? 'single' : 'footprint';
-    freeTileMode = !!state.freeTileMode;
-    freeTilePlacements = Array.isArray(state.freeTilePlacements) ? state.freeTilePlacements : [];
-    _ftSelId = null;
-    const ftBtn = document.getElementById('freeTileModeBtn');
-    if (ftBtn) ftBtn.textContent = freeTileMode ? 'วางอิสระ ✓' : 'วางอิสระ';
     wallLayoutPreset = state.wallLayoutPreset === WALL_LAYOUT_FULL ? WALL_LAYOUT_FULL : WALL_LAYOUT_OPEN;
     if ([WALL_LAYOUT_OPEN, WALL_LAYOUT_FULL, WALL_LAYOUT_CUSTOM].includes(state.wallLayoutMode)) {
         wallLayoutMode = state.wallLayoutMode;
@@ -657,63 +645,6 @@ function loadImageWallMaterial(url, repeatX = 2, repeatY = 1, rotation = 0) {
     });
 }
 
-// ── Running Bond (วางสลับ) ShaderMaterial ────────────────────────────────────
-// ใช้ fragment shader คำนวณ UV จาก world position โดยตรง
-// → ถูกต้องสมบูรณ์ไม่ว่ากระเบื้องจะขนาดใดก็ตาม
-function createRunningBondMaterial(baseTexture, tileW, tileL, offX, offY) {
-    const GROUT_M = 0.003; // ความกว้าง grout 3 mm
-    const groutFracX = GROUT_M / tileW;
-    const groutFracY = GROUT_M / tileL;
-    return new THREE.ShaderMaterial({
-        uniforms: {
-            map:      { value: baseTexture },
-            tileW:    { value: tileW  },
-            tileL:    { value: tileL  },
-            offX:     { value: offX || 0 },
-            offY:     { value: offY || 0 },
-            groutFX:  { value: groutFracX },
-            groutFY:  { value: groutFracY },
-            groutCol: { value: new THREE.Color(0xf0ede8) }, // สี grout ขาวนวล
-        },
-        vertexShader: `
-            varying vec3 vWorldPos;
-            void main() {
-                vec4 wp = modelMatrix * vec4(position, 1.0);
-                vWorldPos = wp.xyz;
-                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-            }
-        `,
-        fragmentShader: `
-            uniform sampler2D map;
-            uniform float tileW, tileL, offX, offY, groutFX, groutFY;
-            uniform vec3 groutCol;
-            varying vec3 vWorldPos;
-            void main() {
-                float col = vWorldPos.x / tileW + offX;
-                float row = vWorldPos.z / tileL + offY;
-                float tileRow = floor(row);
-                // วางสลับ: แถวคี่เลื่อน U ไป 0.5
-                float bondOff = mod(abs(tileRow), 2.0) * 0.5;
-                float u = fract(col + bondOff);
-                float v = fract(row);
-                // Grout lines
-                if (u < groutFX || u > 1.0 - groutFX || v < groutFY || v > 1.0 - groutFY) {
-                    gl_FragColor = vec4(groutCol, 1.0);
-                    return;
-                }
-                // Remap UV ให้รูปเต็มช่องไม่รวม grout
-                float u2 = (u - groutFX) / (1.0 - 2.0 * groutFX);
-                float v2 = (v - groutFY) / (1.0 - 2.0 * groutFY);
-                vec4 c = texture2D(map, vec2(u2, v2));
-                // Lambert แบบง่าย (พื้นหันหน้าขึ้น)
-                float light = 0.55 + 0.45 * max(dot(vec3(0.0, 1.0, 0.0), normalize(vec3(0.4, 1.0, 0.3))), 0.0);
-                gl_FragColor = vec4(c.rgb * light, c.a);
-            }
-        `,
-        side: THREE.DoubleSide,
-    });
-}
-
 tilePatternList
     .filter(item => item.type === 'image')
     .forEach(item => {
@@ -780,87 +711,6 @@ const selectionMaterial = new THREE.MeshBasicMaterial({
     color: 0xf59e0b, transparent: true, opacity: 0.50,
     depthWrite: false, side: THREE.DoubleSide,
 });
-
-// ── Free Tile Placement ───────────────────────────────────────────────────────
-// โหมดวางกระเบื้องอิสระ: แต่ละแผ่นเป็น mesh แยกกัน ลากได้ หมุนได้
-let freeTileMode = false;
-let freeTilePlacements = []; // [{id, patternKey, x, z, rotSteps}]
-let _ftSelId = null;         // id ของ tile ที่เลือกอยู่
-let _ftDragging = false;
-let _ftDragLastWorld = null; // THREE.Vector3
-let _ftDragOrigX = 0;
-let _ftDragOrigZ = 0;
-const FT_SNAP = 0.01; // 1 cm snap
-
-const freeTileGroup = new THREE.Group();
-freeTileGroup.renderOrder = 1;
-scene.add(freeTileGroup);
-
-function _ftGenId() {
-    return 'ft_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
-}
-
-function isFloorAt(wx, wz) {
-    const gx = Math.floor(wx + gridWidth / 2);
-    const gz = Math.floor(wz + gridHeight / 2);
-    if (gx < 0 || gx >= Math.ceil(gridWidth) || gz < 0 || gz >= Math.ceil(gridHeight)) return false;
-    return gridData[gx]?.[gz] === 1;
-}
-
-function buildFreeTileFloor() {
-    while (freeTileGroup.children.length) freeTileGroup.remove(freeTileGroup.children[0]);
-    if (!freeTileMode) return;
-    for (const tp of freeTilePlacements) {
-        const meta = getTileMetaByKey(tp.patternKey);
-        const { widthM: tw, lengthM: tl } = getTileSizeInMeters(meta);
-        const baseTex = tileTextures[tp.patternKey];
-        let mat;
-        if (baseTex) {
-            const tex = baseTex.clone();
-            tex.needsUpdate = true;
-            tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-            tex.repeat.set(1, 1);
-            mat = new THREE.MeshStandardMaterial({
-                map: tex, side: THREE.DoubleSide,
-                emissive: tp.id === _ftSelId ? new THREE.Color(0x3b82f6) : new THREE.Color(0),
-                emissiveIntensity: tp.id === _ftSelId ? 0.3 : 0,
-            });
-        } else {
-            mat = new THREE.MeshStandardMaterial({ color: 0xddd8d0, side: THREE.DoubleSide });
-        }
-        const geo = new THREE.PlaneGeometry(tw, tl);
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.rotation.x = -Math.PI / 2;
-        mesh.rotation.z = (tp.rotSteps || 0) * Math.PI / 2;
-        mesh.position.set(tp.x, 0.003, tp.z);
-        mesh.receiveShadow = true;
-        mesh.userData = { isFreeTile: true, tileId: tp.id };
-        freeTileGroup.add(mesh);
-    }
-    // อัปเดตราคาทุกครั้งที่ free tiles เปลี่ยน ยกเว้นระหว่างลาก (fire ทุก frame)
-    if (!_ftDragging && typeof updatePriceSummary === 'function') updatePriceSummary();
-}
-
-function fillRoomFreeTiles(patternKey, layout) {
-    const key = patternKey || (tileBrush || tilePattern);
-    const meta = getTileMetaByKey(key);
-    const { widthM: tw, lengthM: tl } = getTileSizeInMeters(meta);
-    const placements = [];
-    let row = 0;
-    for (let z = -gridHeight / 2; z < gridHeight / 2 + tl; z += tl, row++) {
-        const bondOff = (layout === 'running_bond' && row % 2 === 1) ? tw / 2 : 0;
-        for (let x = -gridWidth / 2 - bondOff; x < gridWidth / 2 + tw; x += tw) {
-            const cx = x + tw / 2;
-            const cz = z + tl / 2;
-            if (isFloorAt(cx, cz)) {
-                placements.push({ id: _ftGenId(), patternKey: key, x: cx, z: cz, rotSteps: 0 });
-            }
-        }
-    }
-    freeTilePlacements = placements;
-    buildFreeTileFloor();
-    recordHistorySnapshot();
-}
 
 // Ghost wall material (semi-transparent white, for removed walls)
 const ghostWallMaterial = new THREE.MeshBasicMaterial({
@@ -1289,58 +1139,13 @@ function calculatePricingSummary() {
     const offsetX = gridWidth / 2 - 0.5;
     const offsetZ = gridHeight / 2 - 0.5;
 
-    // ── ขั้น 1: หา grid cells ที่ถูก free tile ทับ ──────────────────────────
-    // Cell ถือว่าถูกทับ ถ้า "ศูนย์กลาง cell" อยู่ในกรอบสี่เหลี่ยมของ free tile
-    const coveredCells = new Set();
-    if (freeTileMode && freeTilePlacements.length > 0) {
-        for (const tp of freeTilePlacements) {
-            const meta = getTileMetaByKey(tp.patternKey);
-            const { widthM: tw, lengthM: tl } = getTileSizeInMeters(meta);
-            const rotated = ((tp.rotSteps || 0) % 2) === 1;
-            const halfW = ((rotated ? tl : tw) || 0.6) / 2;
-            const halfL = ((rotated ? tw : tl) || 0.6) / 2;
-            for (let gx = 0; gx < cw; gx++) {
-                for (let gz = 0; gz < ch; gz++) {
-                    if (!gridData[gx]?.[gz]) continue;
-                    const fracX = (gx === cw - 1 && gridWidth % 1 !== 0) ? gridWidth % 1 : 1;
-                    const fracY = (gz === ch - 1 && gridHeight % 1 !== 0) ? gridHeight % 1 : 1;
-                    const cx = gx - offsetX - (1 - fracX) / 2;
-                    const cz = gz - offsetZ - (1 - fracY) / 2;
-                    if (Math.abs(cx - tp.x) < halfW && Math.abs(cz - tp.z) < halfL) {
-                        coveredCells.add(`${gx},${gz}`);
-                    }
-                }
-            }
-        }
-    }
-
-    // ── ขั้น 2: สะสมข้อมูลแต่ละ pattern ───────────────────────────────────
-    // patternData[key] = { meta, area, freeTileCount, tileSet (grid UV) }
+    // สะสมข้อมูลแต่ละ pattern จาก grid พื้นหลัก
     const patternData = {};
     let totalAreaSqm = 0;
 
-    // 2a. Free tiles (นับทีละแผ่นที่วางอยู่จริง)
-    if (freeTileMode) {
-        for (const tp of freeTilePlacements) {
-            const meta = getTileMetaByKey(tp.patternKey);
-            const { widthM: tw, lengthM: tl } = getTileSizeInMeters(meta);
-            const safeW = (tw > 0 && Number.isFinite(tw)) ? tw : 0.6;
-            const safeL = (tl > 0 && Number.isFinite(tl)) ? tl : 0.6;
-            const tileArea = safeW * safeL;
-            totalAreaSqm += tileArea;
-            if (!patternData[tp.patternKey]) {
-                patternData[tp.patternKey] = { meta, area: 0, freeTileCount: 0, tileSet: new Set() };
-            }
-            patternData[tp.patternKey].freeTileCount += 1;
-            patternData[tp.patternKey].area += tileArea;
-        }
-    }
-
-    // 2b. Grid cells ที่ยังไม่ถูกทับ (ใช้ UV set เหมือนเดิม)
     for (let x = 0; x < cw; x++) {
         for (let y = 0; y < ch; y++) {
             if (!gridData[x][y]) continue;
-            if (coveredCells.has(`${x},${y}`)) continue; // ถูก free tile ทับ → ข้าม
             const fracX = (x === cw - 1 && gridWidth % 1 !== 0) ? gridWidth % 1 : 1;
             const fracY = (y === ch - 1 && gridHeight % 1 !== 0) ? gridHeight % 1 : 1;
             const cellArea = fracX * fracY;
@@ -1353,7 +1158,8 @@ function calculatePricingSummary() {
                     meta,
                     safeW: (tW > 0 && Number.isFinite(tW)) ? tW : 0.6,
                     safeL: (tL > 0 && Number.isFinite(tL)) ? tL : 0.6,
-                    area: 0, freeTileCount: 0, tileSet: new Set()
+                    area: 0,
+                    tileSet: new Set()
                 };
             }
             const pd = patternData[cellPattern];
@@ -1381,7 +1187,7 @@ function calculatePricingSummary() {
     // ── ขั้น 3: รวมยอด ─────────────────────────────────────────────────────
     let totalRawTiles = 0, totalTilesWithWaste = 0, totalBoxCount = 0, totalPrice = 0;
     const groups = Object.entries(patternData).map(([patternKey, data]) => {
-        const rawTiles = (data.freeTileCount || 0) + (data.tileSet?.size || 0);
+        const rawTiles = data.tileSet?.size || 0;
         const tilesWithWaste = rawTiles;
         const tilesPerBox = Math.max(1, Math.ceil(Number(data.meta?.tilesPerBox) || 1));
         const pricePerBox = Math.max(0, Number(data.meta?.pricePerBox) || 0);
@@ -1729,7 +1535,6 @@ function build3D() {
     if (selectedTileUnits.size > 0) {
         rebuildSelectedCellsFromTileUnits();
     }
-    buildFreeTileFloor(); // re-render free tiles (clears if freeTileMode=false)
 
     const tileMeta = getTileMetaByKey(tilePattern);
 
@@ -1848,13 +1653,7 @@ function build3D() {
             }
 
             let tileMaterial;
-            if (tileLayoutMode === 'running_bond' && baseTexture) {
-                // Running bond: ShaderMaterial คำนวณ UV + grout ใน fragment shader
-                tileMaterial = createRunningBondMaterial(
-                    baseTexture, safeW, safeL,
-                    tileOff.x, tileOff.y
-                );
-            } else if (baseTexture) {
+            if (baseTexture) {
                 const texClone = baseTexture.clone();
                 texClone.needsUpdate = true;
                 texClone.wrapS = texClone.wrapT = THREE.RepeatWrapping;
@@ -1919,9 +1718,7 @@ function build3D() {
         const unitUCz = tileJ + 0.5 + totalOffY;
 
         let overlayMaterial;
-        if (tileLayoutMode === 'running_bond' && renderTexture) {
-            overlayMaterial = createRunningBondMaterial(renderTexture, safeW, safeL, totalOffX, totalOffY);
-        } else if (renderTexture) {
+        if (renderTexture) {
             const texClone = renderTexture.clone();
             texClone.needsUpdate = true;
             texClone.wrapS = texClone.wrapT = THREE.RepeatWrapping;
@@ -2159,44 +1956,6 @@ window.clearCellSelection = function() {
     selectedTileUnits.clear();
     updateSelectionHighlight();
 }
-
-window.toggleFreeTileMode = function() {
-    freeTileMode = !freeTileMode;
-    _ftSelId = null;
-    const btn = document.getElementById('freeTileModeBtn');
-    if (btn) btn.textContent = freeTileMode ? 'วางอิสระ ✓' : 'วางอิสระ';
-    if (!freeTileMode) {
-        // ล้าง free tiles เมื่อปิดโหมด
-        freeTilePlacements = [];
-    }
-    buildFreeTileFloor();
-    recordHistorySnapshot();
-};
-
-window.fillFreeTiles = function(layout) {
-    if (!freeTileMode) return;
-    fillRoomFreeTiles(tileBrush || tilePattern, layout || 'straight');
-};
-
-window.fillFreeTilesRunningBond = function() {
-    if (!freeTileMode) return;
-    fillRoomFreeTiles(tileBrush || tilePattern, 'running_bond');
-};
-
-window.clearFreeTiles = function() {
-    freeTilePlacements = [];
-    _ftSelId = null;
-    buildFreeTileFloor();
-    recordHistorySnapshot();
-};
-
-window.toggleRunningBond = function() {
-    tileLayoutMode = tileLayoutMode === 'running_bond' ? 'world' : 'running_bond';
-    const btn = document.getElementById('runningBondBtn');
-    if (btn) btn.textContent = tileLayoutMode === 'running_bond' ? 'วางสลับ (Running Bond) ✓' : 'วางสลับ (Running Bond)';
-    build3D();
-    recordHistorySnapshot();
-};
 
 window.toggleTileCellMode = function() {
     tileCellMode = !tileCellMode;
@@ -2930,46 +2689,6 @@ function onPointerDown(event) {
 
     raycaster.setFromCamera(mouse, camera);
 
-    // ── Free Tile Mode: ลากเลื่อน tile ที่เลือก ────────────────────────────
-    if (freeTileMode) {
-        const ftHits = raycaster.intersectObjects(freeTileGroup.children, true);
-        const ftHit = ftHits[0];
-        if (ftHit) {
-            const id = ftHit.object.userData.tileId;
-            const tp = freeTilePlacements.find(t => t.id === id);
-            if (tp) {
-                _ftSelId = id;
-                _ftDragging = true;
-                _ftDragOrigX = tp.x;
-                _ftDragOrigZ = tp.z;
-                const wp = new THREE.Vector3();
-                if (raycaster.ray.intersectPlane(floorIntersectPlane, wp)) {
-                    _ftDragLastWorld = wp.clone();
-                }
-                buildFreeTileFloor();
-                controls.enabled = false;
-                ignoreNextClick = true;
-                return;
-            }
-        }
-        // คลิกพื้นว่าง → วาง tile ใหม่
-        const worldPos = new THREE.Vector3();
-        if (raycaster.ray.intersectPlane(floorIntersectPlane, worldPos)) {
-            const cx = Math.round(worldPos.x / FT_SNAP) * FT_SNAP;
-            const cz = Math.round(worldPos.z / FT_SNAP) * FT_SNAP;
-            if (isFloorAt(cx, cz)) {
-                const key = tileBrush || tilePattern;
-                freeTilePlacements.push({ id: _ftGenId(), patternKey: key, x: cx, z: cz, rotSteps: 0 });
-                buildFreeTileFloor();
-                recordHistorySnapshot();
-                ignoreNextClick = true;
-                controls.enabled = false;
-                return;
-            }
-        }
-        return;
-    }
-
     // โหมดทาทีละแผ่น: กดค้างแล้วลากเพื่อทาตามเมาส์
     if (tileSinglePaintMode && !cellSelectMode && !tileOffsetDragMode) {
         const tileHits = raycaster.intersectObjects(roomGroup.children, true);
@@ -3219,27 +2938,6 @@ function onCanvasClick(event) {
 }
 
 function onPointerMove(event) {
-    // Free tile drag — delta-based so snapping doesn't cause jitter
-    if (_ftDragging && _ftSelId && (event.buttons & 1) !== 0) {
-        const rect = renderer.domElement.getBoundingClientRect();
-        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-        mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-        raycaster.setFromCamera(mouse, camera);
-        const wp = new THREE.Vector3();
-        if (raycaster.ray.intersectPlane(floorIntersectPlane, wp) && _ftDragLastWorld) {
-            const tp = freeTilePlacements.find(t => t.id === _ftSelId);
-            if (tp) {
-                const rawX = tp.x + (wp.x - _ftDragLastWorld.x);
-                const rawZ = tp.z + (wp.z - _ftDragLastWorld.z);
-                tp.x = Math.round(rawX / FT_SNAP) * FT_SNAP;
-                tp.z = Math.round(rawZ / FT_SNAP) * FT_SNAP;
-                _ftDragLastWorld = wp.clone();
-                buildFreeTileFloor();
-            }
-        }
-        return;
-    }
-
     // ลากขยับตำแหน่งเฉพาะ tile units ที่เลือก (โหมดตามขนาดกระเบื้อง)
     if (isDraggingSelectedTileUnits && (event.buttons & 1) !== 0) {
         const rect = renderer.domElement.getBoundingClientRect();
@@ -3429,14 +3127,6 @@ function onPointerMove(event) {
 }
 
 function onPointerUp() {
-    if (_ftDragging) {
-        _ftDragging = false;
-        _ftDragLastWorld = null;
-        controls.enabled = true;
-        recordHistorySnapshot();
-        updatePriceSummary(); // อัปเดตราคาหลังปล่อย drag
-        return;
-    }
     if (isDragPainting) {
         isDragPainting = false;
         if (dragMutatedState) recordHistorySnapshot();
@@ -3616,19 +3306,6 @@ resetRealModalPreview();
 document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
         closeRealImageModal();
-        if (freeTileMode && _ftSelId) { _ftSelId = null; buildFreeTileFloor(); }
-    }
-    if (!freeTileMode || !_ftSelId) return;
-    if (isTypingTarget(event.target)) return;
-    if (event.key === 'r' || event.key === 'R') {
-        const tp = freeTilePlacements.find(t => t.id === _ftSelId);
-        if (tp) { tp.rotSteps = ((tp.rotSteps || 0) + 1) % 4; buildFreeTileFloor(); recordHistorySnapshot(); }
-    }
-    if (event.key === 'Delete' || event.key === 'Backspace') {
-        freeTilePlacements = freeTilePlacements.filter(t => t.id !== _ftSelId);
-        _ftSelId = null;
-        buildFreeTileFloor();
-        recordHistorySnapshot();
     }
 });
 
