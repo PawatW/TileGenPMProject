@@ -1154,6 +1154,20 @@ function calculatePricingSummary() {
 
     // สะสมข้อมูลแต่ละ pattern จาก grid พื้นหลัก
     const patternData = {};
+    const ensurePatternBucket = (patternKey) => {
+        if (!patternData[patternKey]) {
+            const meta = getTileMetaByKey(patternKey);
+            const { widthM: tW, lengthM: tL } = getTileSizeInMeters(meta);
+            patternData[patternKey] = {
+                meta,
+                safeW: (tW > 0 && Number.isFinite(tW)) ? tW : 0.6,
+                safeL: (tL > 0 && Number.isFinite(tL)) ? tL : 0.6,
+                area: 0,
+                tileSet: new Set()
+            };
+        }
+        return patternData[patternKey];
+    };
     let totalAreaSqm = 0;
 
     for (let x = 0; x < cw; x++) {
@@ -1162,25 +1176,15 @@ function calculatePricingSummary() {
             const fracX = (x === cw - 1 && gridWidth % 1 !== 0) ? gridWidth % 1 : 1;
             const fracY = (y === ch - 1 && gridHeight % 1 !== 0) ? gridHeight % 1 : 1;
             const cellArea = fracX * fracY;
-            const cellPattern = floorTextureData[`${x},${y}`] || tilePattern;
+            const cellKey = `${x},${y}`;
+            const cellPattern = floorTextureData[cellKey] || tilePattern;
             totalAreaSqm += cellArea;
-            if (!patternData[cellPattern]) {
-                const meta = getTileMetaByKey(cellPattern);
-                const { widthM: tW, lengthM: tL } = getTileSizeInMeters(meta);
-                patternData[cellPattern] = {
-                    meta,
-                    safeW: (tW > 0 && Number.isFinite(tW)) ? tW : 0.6,
-                    safeL: (tL > 0 && Number.isFinite(tL)) ? tL : 0.6,
-                    area: 0,
-                    tileSet: new Set()
-                };
-            }
-            const pd = patternData[cellPattern];
+            const pd = ensurePatternBucket(cellPattern);
             pd.area += cellArea;
             const cx = x - offsetX - (1 - fracX) / 2;
             const cz = y - offsetZ - (1 - fracY) / 2;
             const patternOff = tileOffsets[cellPattern] || { x: 0, y: 0 };
-            const cellOff = tileCellOffsets[`${x},${y}`] || { x: 0, y: 0 };
+            const cellOff = tileCellOffsets[cellKey] || { x: 0, y: 0 };
             const totalOffX = (patternOff.x || 0) + (cellOff.x || 0);
             const totalOffY = (patternOff.y || 0) + (cellOff.y || 0);
             const uMin = (cx - fracX / 2) / pd.safeW + totalOffX;
@@ -1197,10 +1201,57 @@ function calculatePricingSummary() {
         }
     }
 
+    // Override รายแผ่น (tileUnitOverrides) จะทับพื้นฐานบางส่วน
+    // จึงต้องย้าย area จาก pattern พื้นฐานไปยัง pattern ที่ถูกทาใหม่
+    const overrideUnitCounts = {};
+    let hasUnitOverrides = false;
+
+    Object.entries(tileUnitOverrides).forEach(([overrideKey, unit]) => {
+        if (!unit || typeof unit !== 'object') return;
+
+        const gridPatternKey = unit.gridPatternKey || unit.patternKey || tilePattern;
+        const renderPatternKey = unit.patternKey || gridPatternKey;
+        const tileI = Number(unit.tileI);
+        const tileJ = Number(unit.tileJ);
+        if (!Number.isFinite(tileI) || !Number.isFinite(tileJ)) return;
+
+        const unitSeg = computeUnitSegmentsFromSpec(gridPatternKey, tileI, tileJ);
+        if (!Array.isArray(unitSeg?.segments) || unitSeg.segments.length === 0) return;
+
+        hasUnitOverrides = true;
+        const renderBucket = ensurePatternBucket(renderPatternKey);
+        let appliedArea = 0;
+
+        unitSeg.segments.forEach((seg) => {
+            const segArea = (Number(seg.fracX) || 0) * (Number(seg.fracY) || 0);
+            if (!(segArea > 1e-9)) return;
+
+            const segCellKey = `${seg.gx},${seg.gy}`;
+            const basePatternKey = floorTextureData[segCellKey] || tilePattern;
+            const baseBucket = ensurePatternBucket(basePatternKey);
+
+            baseBucket.area = Math.max(0, baseBucket.area - segArea);
+            renderBucket.area += segArea;
+            appliedArea += segArea;
+        });
+
+        if (appliedArea > 1e-9) {
+            if (!overrideUnitCounts[renderPatternKey]) {
+                overrideUnitCounts[renderPatternKey] = new Set();
+            }
+            overrideUnitCounts[renderPatternKey].add(overrideKey);
+        }
+    });
+
     // ── ขั้น 3: รวมยอด ─────────────────────────────────────────────────────
     let totalRawTiles = 0, totalTilesWithWaste = 0, totalBoxCount = 0, totalPrice = 0;
     const groups = Object.entries(patternData).map(([patternKey, data]) => {
-        const rawTiles = data.tileSet?.size || 0;
+        const tileArea = Math.max(data.safeW * data.safeL, 0.0001);
+        const areaBasedTiles = Math.ceil(Math.max(0, data.area) / tileArea);
+        const overrideRawTiles = overrideUnitCounts[patternKey]?.size || 0;
+        const rawTiles = hasUnitOverrides
+            ? Math.max(areaBasedTiles, overrideRawTiles)
+            : (data.tileSet?.size || areaBasedTiles);
         const tilesWithWaste = rawTiles;
         const tilesPerBox = Math.max(1, Math.ceil(Number(data.meta?.tilesPerBox) || 1));
         const pricePerBox = Math.max(0, Number(data.meta?.pricePerBox) || 0);
@@ -1211,7 +1262,7 @@ function calculatePricingSummary() {
         totalBoxCount += boxes;
         totalPrice += price;
         return { patternKey, area: data.area, rawTiles, tilesWithWaste, tilesPerBox, pricePerBox, boxes, price };
-    });
+    }).filter((group) => group.area > 1e-9 || group.rawTiles > 0);
 
     const primaryGroup = groups.find(g => g.patternKey === tilePattern) || groups[0];
     const primaryMeta = getTileMetaByKey(primaryGroup?.patternKey || tilePattern);
@@ -2717,6 +2768,11 @@ function removeTileUnitOverridesByCellKeys(cellKeys) {
 
 function applyTileUnitPaintOverride(unit, patternKey) {
     const targetPattern = patternKey || tilePattern;
+
+    // Replace any existing override that overlaps the same painted cells.
+    // Without this, repainting in footprint mode can stack overrides.
+    removeTileUnitOverridesByCellKeys(unit.cellKeys || []);
+
     const override = ensureTileUnitOverride(unit, targetPattern);
     override.patternKey = targetPattern;
     override.offsetX = 0;
