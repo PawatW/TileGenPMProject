@@ -493,30 +493,6 @@ export default function PlannerPage() {
           </div>
           <p className="hint">เลือกชนิดแล้วคลิก/ลากบนกำแพง | คลิกขวาที่ชิ้นงานเพื่อลบ</p>
           <div id="fixtureSwatches" className="swatch-grid"></div>
-          <div style={{ marginTop: "12px", padding: "12px", backgroundColor: "var(--bg-secondary)", borderRadius: "8px" }}
-            onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
-            <span className="field-label" style={{ marginBottom: "8px", display: "block" }}>เพิ่มชนิดใหม่</span>
-            <input type="text" id="customFixtureName" placeholder="ชื่อ เช่น ประตูกระจกบาน" style={{ width: "100%", marginBottom: "6px", padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box" }} />
-            <div style={{ display: "flex", gap: "6px", marginBottom: "6px" }}>
-              <select id="customFixtureStyle" style={{ flex: 1, padding: "4px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)" }}>
-                <option value="door">ประตู</option>
-                <option value="window">หน้าต่าง</option>
-              </select>
-            </div>
-            <div style={{ display: "flex", gap: "6px", marginBottom: "8px" }}>
-              <div style={{ flex: 1 }}>
-                <label style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>กว้าง (ม.)</label>
-                <input type="number" id="customFixtureW" defaultValue={0.9} min={0.3} max={5} step={0.05} style={{ width: "100%", padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box" }} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <label style={{ fontSize: "11px", color: "var(--text-muted)", display: "block", marginBottom: "2px" }}>สูง (ม.)</label>
-                <input type="number" id="customFixtureH" defaultValue={2.0} min={0.3} max={5} step={0.05} style={{ width: "100%", padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text)", boxSizing: "border-box" }} />
-              </div>
-            </div>
-            <button className="draft-btn primary" style={{ width: "100%", justifyContent: "center" }} onClick={() => (window as any).addCustomFixtureType?.()}>
-              เพิ่มชนิดนี้
-            </button>
-          </div>
         </div>
 
       </div>
