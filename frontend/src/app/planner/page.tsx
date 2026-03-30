@@ -143,11 +143,19 @@ export default function PlannerPage() {
       const detail = (e as CustomEvent).detail as SelectedEl;
       setSelectedEl(detail);
     };
+    const onTilePaintModeChanged = (e: Event) => {
+      const mode = (e as CustomEvent<{ mode?: "cell" | "footprint" }>).detail?.mode;
+      if (mode === "cell" || mode === "footprint") {
+        setPaintMode(mode);
+      }
+    };
     document.addEventListener("pmElementSelected", handler);
+    document.addEventListener("pmTilePaintModeChanged", onTilePaintModeChanged);
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setSelectedEl(null); };
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("pmElementSelected", handler);
+      document.removeEventListener("pmTilePaintModeChanged", onTilePaintModeChanged);
       document.removeEventListener("keydown", onKey);
     };
   }, []);
@@ -456,23 +464,6 @@ export default function PlannerPage() {
                 type="checkbox"
                 id="tilePerPieceToggle"
                 onChange={(e) => (window as any).toggleTileSinglePaintMode?.((e.target as HTMLInputElement).checked)}
-              />
-              <span className="switch-track"></span>
-            </label>
-          </div>
-          <div className="toggle-row" style={{ marginTop: "10px" }}>
-            <div className="toggle-label-with-info">
-              <span className="toggle-label">1 Cell = 1 แผ่น</span>
-              <InfoTooltip
-                label="1 Cell = 1 แผ่น"
-                description="เปิดเพื่อให้แต่ละช่องตารางแสดงกระเบื้อง 1 แผ่นพอดี"
-              />
-            </div>
-            <label className="switch">
-              <input
-                type="checkbox"
-                id="tileCellModeToggle"
-                onChange={(e) => (window as any).setTileCellMode?.((e.target as HTMLInputElement).checked)}
               />
               <span className="switch-track"></span>
             </label>

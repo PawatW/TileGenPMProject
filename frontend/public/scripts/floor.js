@@ -77,6 +77,11 @@ let isDraggingSelectedTileUnits = false;
 let selectedTileUnitDragStartPos = null;
 let selectedTileUnitDragStartOffsets = {};
 let selectedTileUnitDragKeys = [];
+const CLICK_DRAG_THRESHOLD_PX = 6;
+const CLICK_SUPPRESS_WINDOW_MS = 220;
+let pointerDownStart = null;
+let pointerDraggedSinceDown = false;
+let suppressClickUntil = 0;
 const WALL_LAYOUT_OPEN = 'open';
 const WALL_LAYOUT_FULL = 'full';
 const WALL_LAYOUT_CUSTOM = 'custom';
@@ -280,6 +285,7 @@ function serializeDesignState() {
         wallPattern,
         wallLayoutPreset,
         wallLayoutMode,
+        tilePaintMode,
         tileCellMode,
         cellSelectScope,
         gridData,
@@ -311,7 +317,14 @@ function applyDesignState(state) {
 
     if (typeof state.tilePattern === 'string') tilePattern = state.tilePattern;
     if (typeof state.wallPattern === 'string') wallPattern = state.wallPattern;
-    tileCellMode = !!state.tileCellMode;
+    if (state.tilePaintMode === 'cell' || state.tilePaintMode === 'footprint') {
+        tilePaintMode = state.tilePaintMode;
+        tileCellMode = tilePaintMode === 'cell';
+    } else {
+        // Backward compatibility for drafts saved before tilePaintMode was persisted.
+        tileCellMode = !!state.tileCellMode;
+        tilePaintMode = tileCellMode ? 'cell' : 'footprint';
+    }
     syncTileCellModeControls();
     cellSelectScope = state.cellSelectScope === 'single' ? 'single' : 'footprint';
     wallLayoutPreset = state.wallLayoutPreset === WALL_LAYOUT_FULL ? WALL_LAYOUT_FULL : WALL_LAYOUT_OPEN;
@@ -899,30 +912,21 @@ function syncWallPerPieceToggle() {
 }
 
 function syncTileCellModeControls() {
-    const toggleInput = document.getElementById('tileCellModeToggle');
-    if (toggleInput) toggleInput.checked = tileCellMode;
-
-    const onInput = document.getElementById('tileCellModeOn');
-    if (onInput) onInput.checked = tileCellMode;
-
-    const offInput = document.getElementById('tileCellModeOff');
-    if (offInput) offInput.checked = !tileCellMode;
-
-    const btn = document.getElementById('tileCellModeBtn');
-    if (btn) {
-        btn.textContent = tileCellMode ? '1 Cell = 1 แผ่น ✓' : '1 Cell = 1 แผ่น';
-        btn.setAttribute('aria-pressed', tileCellMode ? 'true' : 'false');
-    }
+    const mode = tileCellMode ? 'cell' : 'footprint';
+    document.dispatchEvent(new CustomEvent('pmTilePaintModeChanged', { detail: { mode } }));
 }
 
 function setTileCellModeEnabled(enabled, { recordHistory = true } = {}) {
-    const nextMode = !!enabled;
-    if (tileCellMode === nextMode) {
+    const nextCellMode = !!enabled;
+    const nextPaintMode = nextCellMode ? 'cell' : 'footprint';
+
+    if (tileCellMode === nextCellMode && tilePaintMode === nextPaintMode) {
         syncTileCellModeControls();
         return;
     }
 
-    tileCellMode = nextMode;
+    tileCellMode = nextCellMode;
+    tilePaintMode = nextPaintMode;
     syncTileCellModeControls();
     build3D();
     if (recordHistory) {
@@ -1921,8 +1925,9 @@ window.toggleTileFlipMode = function(enabled) {
 }
 
 window.setTilePaintMode = function(mode) {
-    tilePaintMode = mode; // 'cell' | 'footprint'
+    const normalizedMode = mode === 'cell' ? 'cell' : 'footprint';
     clearHoverHighlight();
+    setTileCellModeEnabled(normalizedMode === 'cell', { recordHistory: false });
 }
 
 window.toggleTileSinglePaintMode = function(enabled) {
@@ -2714,6 +2719,10 @@ function updateSelectionHighlight() {
 
 function onPointerDown(event) {
     if (event.button !== 0) return;
+
+    pointerDownStart = { x: event.clientX, y: event.clientY };
+    pointerDraggedSinceDown = false;
+
     const rect = renderer.domElement.getBoundingClientRect();
     mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -2841,6 +2850,12 @@ function onPointerDown(event) {
 
 function onCanvasClick(event) {
     if (placementMode) return;
+
+    if (performance.now() < suppressClickUntil) {
+        suppressClickUntil = 0;
+        return;
+    }
+
     if (ignoreNextClick) {
         ignoreNextClick = false;
         return;
@@ -2969,6 +2984,14 @@ function onCanvasClick(event) {
 }
 
 function onPointerMove(event) {
+    if (pointerDownStart && !pointerDraggedSinceDown && (event.buttons & 1) !== 0) {
+        const dx = event.clientX - pointerDownStart.x;
+        const dy = event.clientY - pointerDownStart.y;
+        if ((dx * dx) + (dy * dy) >= (CLICK_DRAG_THRESHOLD_PX * CLICK_DRAG_THRESHOLD_PX)) {
+            pointerDraggedSinceDown = true;
+        }
+    }
+
     // ลากขยับตำแหน่งเฉพาะ tile units ที่เลือก (โหมดตามขนาดกระเบื้อง)
     if (isDraggingSelectedTileUnits && (event.buttons & 1) !== 0) {
         const rect = renderer.domElement.getBoundingClientRect();
@@ -3158,6 +3181,14 @@ function onPointerMove(event) {
 }
 
 function onPointerUp() {
+    if (pointerDownStart) {
+        if (pointerDraggedSinceDown) {
+            suppressClickUntil = performance.now() + CLICK_SUPPRESS_WINDOW_MS;
+        }
+        pointerDownStart = null;
+        pointerDraggedSinceDown = false;
+    }
+
     if (isDragPainting) {
         isDragPainting = false;
         if (dragMutatedState) recordHistorySnapshot();
@@ -3263,13 +3294,6 @@ const wallHeightInput = document.getElementById('wallHeightInfo');
 if (wallHeightInput) {
     wallHeightInput.addEventListener('change', () => {
         recordHistorySnapshot();
-    });
-}
-
-const tileCellModeToggleInput = document.getElementById('tileCellModeToggle');
-if (tileCellModeToggleInput) {
-    tileCellModeToggleInput.addEventListener('change', (event) => {
-        setTileCellModeEnabled(!!event.target?.checked, { recordHistory: true });
     });
 }
 
