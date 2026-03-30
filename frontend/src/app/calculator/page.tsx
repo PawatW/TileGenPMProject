@@ -124,6 +124,14 @@ const BUILTIN_CALCULATOR_TILES: CatalogItem[] = [
   },
 ];
 
+function itemSignature(item: CatalogItem): string {
+  return [
+    item.name.trim().toLowerCase(),
+    item.widthCm.toFixed(2),
+    item.heightCm.toFixed(2),
+  ].join("|");
+}
+
 function calcResult(inputs: CalcInputs): CalcResult {
   const { roomWidthM, roomLengthM, tileWidthCm, tileLengthCm, tilesPerBox, pricePerBox, wastePercent } = inputs;
 
@@ -259,9 +267,23 @@ export default function CalculatorPage() {
     if (user) getCatalog().then(setCatalog);
   }, [user]);
 
+  const dedupedCatalog = useMemo(() => {
+    const seen = new Set(BUILTIN_CALCULATOR_TILES.map((item) => itemSignature(item)));
+    const output: CatalogItem[] = [];
+
+    catalog.forEach((item) => {
+      const sig = itemSignature(item);
+      if (seen.has(sig)) return;
+      seen.add(sig);
+      output.push(item);
+    });
+
+    return output;
+  }, [catalog]);
+
   const catalogOptions = useMemo(
-    () => [...BUILTIN_CALCULATOR_TILES, ...catalog],
-    [catalog]
+    () => [...BUILTIN_CALCULATOR_TILES, ...dedupedCatalog],
+    [dedupedCatalog]
   );
 
   const handleCatalogSelect = (id: string) => {
@@ -381,13 +403,13 @@ export default function CalculatorPage() {
                       {item.name} ({item.widthCm}×{item.heightCm} cm · ฿{item.pricePerBox}/กล่อง)
                     </option>
                   ))}
-                  {catalog.map((item) => (
+                  {dedupedCatalog.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.name} ({item.widthCm}×{item.heightCm} cm · ฿{item.pricePerBox}/กล่อง)
                     </option>
                   ))}
                 </select>
-                {catalog.length === 0 && (
+                {dedupedCatalog.length === 0 && (
                   <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>
                     แสดงรายการ Built-in เท่านั้น —{" "}
                     <Link href="/planner/catalog" style={{ color: "var(--text)", textDecoration: "underline" }}>

@@ -23,8 +23,76 @@ import {
 export type { CatalogItem };
 export type { PlannerCatalogEntry, PlannerCatalogPayload, PlannerCatalogType };
 
+function toNumber(value: unknown, fallback: number): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function toCm(value: number, unit: unknown): number {
+  const normalizedUnit = typeof unit === "string" ? unit.toLowerCase() : "cm";
+  if (normalizedUnit === "inch") return value * 2.54;
+  if (normalizedUnit === "m") return value * 100;
+  if (normalizedUnit === "mm") return value / 10;
+  return value;
+}
+
+function normalizePlannerTile(entry: PlannerCatalogEntry): CatalogItem | null {
+  const label = typeof entry.label === "string" ? entry.label.trim() : "";
+  if (!label) return null;
+
+  const widthRaw = toNumber(entry.width, 60);
+  const lengthRaw = toNumber(entry.length, 60);
+  const widthCm = Number(toCm(widthRaw, entry.unit).toFixed(2));
+  const heightCm = Number(toCm(lengthRaw, entry.unit).toFixed(2));
+
+  const dbId = typeof entry.dbId === "string" ? entry.dbId : undefined;
+  const fallbackKey = typeof entry.key === "string" ? entry.key : label;
+
+  return {
+    id: dbId ?? `planner:${fallbackKey}`,
+    name: label,
+    widthCm,
+    heightCm,
+    pricePerBox: Math.max(0, toNumber(entry.pricePerBox, 0)),
+    tilesPerBox: Math.max(1, Math.ceil(toNumber(entry.tilesPerBox, 1))),
+    color: typeof entry.color === "string" ? entry.color : "",
+    note: typeof entry.note === "string" ? entry.note : "planner",
+    createdAt: typeof entry.createdAt === "string" ? entry.createdAt : new Date(0).toISOString(),
+  };
+}
+
+function catalogSignature(item: CatalogItem): string {
+  return [
+    item.name.trim().toLowerCase(),
+    item.widthCm.toFixed(2),
+    item.heightCm.toFixed(2),
+  ].join("|");
+}
+
+function dedupeCatalogItems(items: CatalogItem[]): CatalogItem[] {
+  const bySignature = new Map<string, CatalogItem>();
+  items.forEach((item) => {
+    bySignature.set(catalogSignature(item), item);
+  });
+  return Array.from(bySignature.values());
+}
+
 export async function getCatalog(): Promise<CatalogItem[]> {
-  return apiGetCatalog();
+  const [plannerResult, legacyResult] = await Promise.allSettled([
+    apiGetPlannerCatalog(),
+    apiGetCatalog(),
+  ]);
+
+  const plannerTiles = plannerResult.status === "fulfilled"
+    ? plannerResult.value.tiles
+      .map((entry) => normalizePlannerTile(entry))
+      .filter((entry): entry is CatalogItem => entry !== null)
+    : [];
+
+  const legacyTiles = legacyResult.status === "fulfilled" ? legacyResult.value : [];
+
+  // Keep legacy data as fallback while preferring planner catalog as source of truth.
+  return dedupeCatalogItems([...legacyTiles, ...plannerTiles]);
 }
 
 export async function addCatalogItem(
