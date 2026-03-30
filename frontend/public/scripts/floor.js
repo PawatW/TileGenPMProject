@@ -2122,15 +2122,96 @@ window.deleteFixtureByIndex = function(idx) {
     }
 };
 
-window.setTileCellRotation = function(x, y, rot) {
+function resolveInspectorTileUnit(x, y, unitPayload) {
+    const cellPattern = floorTextureData[`${x},${y}`] || tilePattern;
+    const payload = (unitPayload && typeof unitPayload === 'object') ? unitPayload : null;
+
+    if (payload) {
+        const payloadPattern = payload.gridPatternKey || payload.patternKey || cellPattern;
+        const payloadTileI = Number(payload.tileI);
+        const payloadTileJ = Number(payload.tileJ);
+        if (Number.isFinite(payloadTileI) && Number.isFinite(payloadTileJ)) {
+            const seg = computeUnitSegmentsFromSpec(payloadPattern, payloadTileI, payloadTileJ);
+            if (seg.segments.length > 0) {
+                return {
+                    unitKey: `${payloadPattern}|${payloadTileI},${payloadTileJ}`,
+                    gridPatternKey: payloadPattern,
+                    patternKey: payload.patternKey || payloadPattern,
+                    tileI: payloadTileI,
+                    tileJ: payloadTileJ,
+                    safeW: seg.safeW,
+                    safeL: seg.safeL,
+                    segments: seg.segments,
+                    cellKeys: seg.cellKeys,
+                };
+            }
+        }
+
+        if (typeof payload.unitKey === 'string') {
+            const m = payload.unitKey.match(/^(.*)\|(-?\d+),(-?\d+)$/);
+            if (m) {
+                const unitPattern = m[1] || payloadPattern;
+                const ti = Number.parseInt(m[2], 10);
+                const tj = Number.parseInt(m[3], 10);
+                if (Number.isFinite(ti) && Number.isFinite(tj)) {
+                    const seg = computeUnitSegmentsFromSpec(unitPattern, ti, tj);
+                    if (seg.segments.length > 0) {
+                        return {
+                            unitKey: `${unitPattern}|${ti},${tj}`,
+                            gridPatternKey: unitPattern,
+                            patternKey: payload.patternKey || unitPattern,
+                            tileI: ti,
+                            tileJ: tj,
+                            safeW: seg.safeW,
+                            safeL: seg.safeL,
+                            segments: seg.segments,
+                            cellKeys: seg.cellKeys,
+                        };
+                    }
+                }
+            }
+        }
+    }
+
+    const info = getCellWorldInfo(x, y);
+    return computeTileSelectionUnit(info.cx, info.cz, cellPattern, x, y);
+}
+
+window.setTileCellRotation = function(x, y, rot, unitPayload) {
+    const normalizedRot = ((rot % 4) + 4) % 4;
+
+    if (tilePaintMode === 'footprint') {
+        const targetUnit = resolveInspectorTileUnit(x, y, unitPayload);
+        if (targetUnit) {
+            const unitPattern = unitPayload?.patternKey || targetUnit.patternKey || targetUnit.gridPatternKey || (floorTextureData[`${x},${y}`] || tilePattern);
+            const override = ensureTileUnitOverride(targetUnit, unitPattern);
+            override.rotation = normalizedRot;
+            build3D();
+            recordHistorySnapshot();
+            return;
+        }
+    }
+
     if (rotationData[x]?.[y] !== undefined) {
-        rotationData[x][y] = ((rot % 4) + 4) % 4;
+        rotationData[x][y] = normalizedRot;
         build3D();
         recordHistorySnapshot();
     }
 };
 
-window.setTileCellFlip = function(x, y, flip) {
+window.setTileCellFlip = function(x, y, flip, unitPayload) {
+    if (tilePaintMode === 'footprint') {
+        const targetUnit = resolveInspectorTileUnit(x, y, unitPayload);
+        if (targetUnit) {
+            const unitPattern = unitPayload?.patternKey || targetUnit.patternKey || targetUnit.gridPatternKey || (floorTextureData[`${x},${y}`] || tilePattern);
+            const override = ensureTileUnitOverride(targetUnit, unitPattern);
+            override.flip = !!flip;
+            build3D();
+            recordHistorySnapshot();
+            return;
+        }
+    }
+
     if (flipData[x]?.[y] !== undefined) {
         flipData[x][y] = flip ? 1 : 0;
         build3D();
@@ -2953,12 +3034,38 @@ function onCanvasClick(event) {
             clearHoverHighlight();
             build3D();
             recordHistorySnapshot();
+
+            let selectedTileUnitMeta = null;
+            if (tilePaintMode === 'footprint') {
+                if (clickedUnitOverride && Number.isFinite(Number(clickedUnitOverride.tileI)) && Number.isFinite(Number(clickedUnitOverride.tileJ))) {
+                    const gridPattern = clickedUnitOverride.gridPatternKey || clickedUnitOverride.patternKey || currentPattern;
+                    selectedTileUnitMeta = {
+                        unitKey: `${gridPattern}|${Number(clickedUnitOverride.tileI)},${Number(clickedUnitOverride.tileJ)}`,
+                        unitGridPattern: gridPattern,
+                        unitTileI: Number(clickedUnitOverride.tileI),
+                        unitTileJ: Number(clickedUnitOverride.tileJ),
+                    };
+                } else {
+                    const inspectorUnit = getClickedFootprintUnit();
+                    selectedTileUnitMeta = {
+                        unitKey: inspectorUnit.unitKey,
+                        unitGridPattern: inspectorUnit.gridPatternKey,
+                        unitTileI: inspectorUnit.tileI,
+                        unitTileJ: inspectorUnit.tileJ,
+                    };
+                }
+            }
+
             // Dispatch selection event for inspector panel
             document.dispatchEvent(new CustomEvent('pmElementSelected', { detail: {
                 type: 'tile', x: clickedGx, y: clickedGy,
                 patternKey: clickedUnitOverride?.patternKey || data.unitPattern || floorTextureData[`${clickedGx},${clickedGy}`] || tilePattern,
                 rotation: clickedUnitOverride ? ((((Math.round(Number(clickedUnitOverride.rotation) || 0) % 4) + 4) % 4)) : (rotationData[clickedGx][clickedGy] || 0),
-                flip: clickedUnitOverride ? !!clickedUnitOverride.flip : !!(flipData[clickedGx][clickedGy])
+                flip: clickedUnitOverride ? !!clickedUnitOverride.flip : !!(flipData[clickedGx][clickedGy]),
+                unitKey: selectedTileUnitMeta?.unitKey,
+                unitGridPattern: selectedTileUnitMeta?.unitGridPattern,
+                unitTileI: selectedTileUnitMeta?.unitTileI,
+                unitTileJ: selectedTileUnitMeta?.unitTileJ,
             }}));
         }
         // ถ้าคลิก ghost wall (กำแพงที่ถูกลบ) → คืนกลับมา

@@ -5,7 +5,18 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 
 type SelectedEl =
-  | { type: "tile"; x: number; y: number; patternKey: string; rotation: number; flip: boolean }
+  | {
+      type: "tile";
+      x: number;
+      y: number;
+      patternKey: string;
+      rotation: number;
+      flip: boolean;
+      unitKey?: string;
+      unitGridPattern?: string;
+      unitTileI?: number;
+      unitTileJ?: number;
+    }
   | { type: "wall"; wallKey: string; x: number; y: number; side: string; patternKey: string; removed: boolean }
   | { type: "fixture"; index: number; fixtureType: string; label: string }
   | null;
@@ -560,11 +571,29 @@ export default function PlannerPage() {
                 </div>
                 <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>
                   <button className="btn-outline" style={{ flex: 1, justifyContent: "center", fontSize: "11px", padding: "4px" }}
-                    onClick={() => { (window as any).setTileCellRotation?.(selectedEl.x, selectedEl.y, (selectedEl.rotation + 1) % 4); setSelectedEl({ ...selectedEl, rotation: (selectedEl.rotation + 1) % 4 }); }}>
+                    onClick={() => {
+                      (window as any).setTileCellRotation?.(selectedEl.x, selectedEl.y, (selectedEl.rotation + 1) % 4, {
+                        unitKey: selectedEl.unitKey,
+                        gridPatternKey: selectedEl.unitGridPattern,
+                        tileI: selectedEl.unitTileI,
+                        tileJ: selectedEl.unitTileJ,
+                        patternKey: selectedEl.patternKey,
+                      });
+                      setSelectedEl({ ...selectedEl, rotation: (selectedEl.rotation + 1) % 4 });
+                    }}>
                     หมุน +90°
                   </button>
                   <button className="btn-outline" style={{ flex: 1, justifyContent: "center", fontSize: "11px", padding: "4px" }}
-                    onClick={() => { (window as any).setTileCellFlip?.(selectedEl.x, selectedEl.y, !selectedEl.flip); setSelectedEl({ ...selectedEl, flip: !selectedEl.flip }); }}>
+                    onClick={() => {
+                      (window as any).setTileCellFlip?.(selectedEl.x, selectedEl.y, !selectedEl.flip, {
+                        unitKey: selectedEl.unitKey,
+                        gridPatternKey: selectedEl.unitGridPattern,
+                        tileI: selectedEl.unitTileI,
+                        tileJ: selectedEl.unitTileJ,
+                        patternKey: selectedEl.patternKey,
+                      });
+                      setSelectedEl({ ...selectedEl, flip: !selectedEl.flip });
+                    }}>
                     {selectedEl.flip ? "ยกเลิกกระจก" : "กระจก"}
                   </button>
                 </div>
