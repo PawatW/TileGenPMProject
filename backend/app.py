@@ -23,16 +23,25 @@ def create_app() -> Flask:
     app.config["MAX_CONTENT_LENGTH"] = 15 * 1024 * 1024  # 15 MB
 
     db.init_app(app)
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    # เปิดให้ทุก Route (/*) แทนที่จะเป็นแค่ /api/* และเปิดรับ Credentials
+    CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
     # ── blueprints ────────────────────────────────────────────────────────────
     from routes.auth import bp as auth_bp
     from routes.catalog import bp as catalog_bp
     from routes.designs import bp as designs_bp
     from routes.images import bp as images_bp
+    from routes.planner_catalog import bp as planner_catalog_bp
     from routes.quotations import bp as quotations_bp
 
-    for blueprint in (auth_bp, designs_bp, catalog_bp, quotations_bp, images_bp):
+    for blueprint in (
+        auth_bp,
+        designs_bp,
+        catalog_bp,
+        planner_catalog_bp,
+        quotations_bp,
+        images_bp,
+    ):
         app.register_blueprint(blueprint)
 
     return app
@@ -60,8 +69,10 @@ def _seed_demo_user(app: Flask) -> None:
 
 app = create_app()
 
+# ย้ายออกมาไว้ตรงนี้! เพื่อให้ Render (Gunicorn) รันคำสั่งสร้างตารางบน Neon ด้วย
+init_database(app) 
+
 if __name__ == "__main__":
-    init_database(app)
     app.run(
         host="0.0.0.0",
         port=5001,

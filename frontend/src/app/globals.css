@@ -134,6 +134,54 @@ body {
     border-bottom: none;
 }
 
+.settings-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    padding: 14px 20px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-0);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    box-shadow: 0 6px 12px -10px rgba(0,0,0,0.35);
+}
+
+.settings-tab-btn {
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+    color: var(--text-sec);
+    border-radius: var(--radius-sm);
+    padding: 8px 8px;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.settings-tab-btn:hover {
+    border-color: var(--border-strong);
+    color: var(--text);
+}
+
+.settings-tab-btn.is-active {
+    background: var(--gold-dim);
+    border-color: rgba(var(--gold-rgb), 0.35);
+    color: var(--gold);
+}
+
+.settings-tab-btn:focus-visible {
+    outline: none;
+    border-color: rgba(var(--gold-rgb), 0.45);
+    box-shadow: 0 0 0 3px rgba(var(--gold-rgb), 0.12);
+}
+
+.settings-tab-panel {
+    border-top: none;
+}
+
 .section-header {
     display: flex;
     align-items: center;
@@ -367,6 +415,132 @@ input[type="range"]::-webkit-slider-thumb:hover {
     font-size: 12px;
     font-weight: 500;
     color: var(--text-sec);
+}
+
+.toggle-row-plain {
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+
+.toggle-row-plain .toggle-label {
+    font-size: 12px;
+}
+
+.toggle-label-with-info {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding-right: 10px;
+}
+
+.toggle-label-with-info .toggle-label {
+    margin: 0;
+    line-height: 1.35;
+}
+
+.info-tooltip-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.info-trigger {
+    width: 18px;
+    height: 18px;
+    border-radius: 99px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-0);
+    color: var(--text-muted);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: color 0.15s, border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.info-trigger svg {
+    width: 12px;
+    height: 12px;
+}
+
+.info-trigger svg circle,
+.info-trigger svg line {
+    stroke: currentColor;
+    stroke-width: 1.5;
+    fill: none;
+    stroke-linecap: round;
+}
+
+.info-trigger:hover,
+.info-tooltip-wrap.is-open .info-trigger {
+    color: var(--gold);
+    border-color: rgba(var(--gold-rgb), 0.4);
+    background: var(--gold-dim);
+}
+
+.info-trigger:focus-visible {
+    outline: none;
+    color: var(--gold);
+    border-color: rgba(var(--gold-rgb), 0.4);
+    box-shadow: 0 0 0 3px rgba(var(--gold-rgb), 0.14);
+}
+
+.info-tooltip-text {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: max-content;
+    max-width: 200px;
+    background: #1f1f1f;
+    color: #f4f4f4;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 11px;
+    line-height: 1.45;
+    letter-spacing: 0.1px;
+    box-shadow: 0 10px 24px rgba(0,0,0,0.25);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    z-index: 45;
+    transition: opacity 0.14s ease, transform 0.14s ease, visibility 0.14s ease;
+}
+
+.info-tooltip-wrap.is-open .info-tooltip-text {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(0);
+}
+
+.info-tooltip-text::before {
+    content: "";
+    position: absolute;
+    top: -5px;
+    left: 50%;
+    width: 9px;
+    height: 9px;
+    background: #1f1f1f;
+    border-left: 1px solid rgba(255, 255, 255, 0.14);
+    border-top: 1px solid rgba(255, 255, 255, 0.14);
+    transform: translateX(-50%) rotate(45deg);
+}
+
+@media (hover: none) {
+    .info-trigger {
+        width: 20px;
+        height: 20px;
+    }
+
+    .info-tooltip-text {
+        max-width: 220px;
+        font-size: 11px;
+    }
 }
 
 .switch {

@@ -4,10 +4,15 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import Link from "next/link";
-import { addCatalogItem, deleteCatalogItem } from "@/lib/storage";
+import {
+  addPlannerCatalogItem,
+  deletePlannerCatalogItem,
+  getPlannerCatalog,
+} from "@/lib/storage";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const CATALOG_KEY = "pm69-floorplanner:catalog:v1";
+const EMPTY_CATALOG = { tiles: [], walls: [], fixtures: [] };
 
 // ─── Built-in (read-only) catalog ─────────────────────────────────────────────
 const BUILTIN_TILES = [
@@ -37,27 +42,164 @@ const BUILTIN_FIXTURES = [
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface CustomTile   { key: string; label: string; type: "image"; url: string; width: number; length: number; unit: string; pricePerBox: number; tilesPerBox: number; dbId?: string }
-interface CustomWall   { key: string; label: string; url: string; repeatX?: number; repeatYPerMeter?: number }
-interface CustomFixture{ key: string; label: string; renderAs: string; width: number; height: number; depth: number; preview: { base: string; accent: string } }
+interface CustomWall   { key: string; label: string; type: "image"; url: string; repeatX?: number; repeatYPerMeter?: number; dbId?: string }
+interface CustomFixture{ key: string; label: string; renderAs: string; width: number; height: number; depth: number; preview: { base: string; accent: string }; dbId?: string }
 interface Catalog { tiles: CustomTile[]; walls: CustomWall[]; fixtures: CustomFixture[] }
+
+function toNumber(value: unknown, fallback: number): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function normalizeTile(entry: unknown): CustomTile | null {
+  if (!entry || typeof entry !== "object") return null;
+  const item = entry as Record<string, unknown>;
+
+  if (typeof item.key !== "string" || typeof item.label !== "string" || typeof item.url !== "string") {
+    return null;
+  }
+
+  return {
+    key: item.key,
+    label: item.label,
+    type: "image",
+    url: item.url,
+    width: toNumber(item.width, 60),
+    length: toNumber(item.length, 60),
+    unit: typeof item.unit === "string" ? item.unit : "cm",
+    pricePerBox: toNumber(item.pricePerBox, 0),
+    tilesPerBox: Math.max(1, Math.round(toNumber(item.tilesPerBox, 1))),
+    dbId: typeof item.dbId === "string" ? item.dbId : undefined,
+  };
+}
+
+function normalizeWall(entry: unknown): CustomWall | null {
+  if (!entry || typeof entry !== "object") return null;
+  const item = entry as Record<string, unknown>;
+
+  if (typeof item.key !== "string" || typeof item.label !== "string" || typeof item.url !== "string") {
+    return null;
+  }
+
+  return {
+    key: item.key,
+    label: item.label,
+    type: "image",
+    url: item.url,
+    repeatX: toNumber(item.repeatX, 2),
+    repeatYPerMeter: toNumber(item.repeatYPerMeter, 1),
+    dbId: typeof item.dbId === "string" ? item.dbId : undefined,
+  };
+}
+
+function normalizeFixture(entry: unknown): CustomFixture | null {
+  if (!entry || typeof entry !== "object") return null;
+  const item = entry as Record<string, unknown>;
+
+  if (typeof item.key !== "string" || typeof item.label !== "string") {
+    return null;
+  }
+
+  const renderAs = item.renderAs === "window" ? "window" : "door";
+  const rawPreview = item.preview && typeof item.preview === "object"
+    ? (item.preview as { base?: unknown; accent?: unknown })
+    : {};
+
+  const fallbackPreview = renderAs === "window"
+    ? { base: "#93c5fd", accent: "#e2e8f0" }
+    : { base: "#b08968", accent: "#fef9c3" };
+
+  return {
+    key: item.key,
+    label: item.label,
+    renderAs,
+    width: toNumber(item.width, renderAs === "window" ? 0.9 : 0.95),
+    height: toNumber(item.height, renderAs === "window" ? 0.8 : 2),
+    depth: toNumber(item.depth, renderAs === "window" ? 0.08 : 0.1),
+    preview: {
+      base: typeof rawPreview.base === "string" ? rawPreview.base : fallbackPreview.base,
+      accent: typeof rawPreview.accent === "string" ? rawPreview.accent : fallbackPreview.accent,
+    },
+    dbId: typeof item.dbId === "string" ? item.dbId : undefined,
+  };
+}
+
+function dedupeEntries<T extends { key: string }>(items: T[], signature: (item: T) => string): T[] {
+  const seenKeys = new Set<string>();
+  const seenSignatures = new Set<string>();
+  const output: T[] = [];
+
+  items.forEach((item) => {
+    if (seenKeys.has(item.key)) return;
+    const sig = signature(item);
+    if (seenSignatures.has(sig)) return;
+    seenKeys.add(item.key);
+    seenSignatures.add(sig);
+    output.push(item);
+  });
+
+  return output;
+}
+
+function normalizeCatalog(payload: { tiles?: unknown; walls?: unknown; fixtures?: unknown } | null | undefined): Catalog {
+  const tilesRaw = Array.isArray(payload?.tiles) ? payload.tiles : [];
+  const wallsRaw = Array.isArray(payload?.walls) ? payload.walls : [];
+  const fixturesRaw = Array.isArray(payload?.fixtures) ? payload.fixtures : [];
+
+  const tiles = dedupeEntries(
+    tilesRaw
+      .map((entry) => normalizeTile(entry))
+      .filter((entry): entry is CustomTile => entry !== null),
+    (item) => [
+      item.label.trim().toLowerCase(),
+      item.url,
+      item.width,
+      item.length,
+      item.unit,
+      item.pricePerBox,
+      item.tilesPerBox,
+    ].join("|")
+  );
+  const walls = dedupeEntries(
+    wallsRaw
+      .map((entry) => normalizeWall(entry))
+      .filter((entry): entry is CustomWall => entry !== null),
+    (item) => [
+      item.label.trim().toLowerCase(),
+      item.url,
+      item.repeatX ?? 2,
+      item.repeatYPerMeter ?? 1,
+    ].join("|")
+  );
+  const fixtures = dedupeEntries(
+    fixturesRaw
+      .map((entry) => normalizeFixture(entry))
+      .filter((entry): entry is CustomFixture => entry !== null),
+    (item) => [
+      item.label.trim().toLowerCase(),
+      item.renderAs,
+      item.width,
+      item.height,
+      item.depth,
+    ].join("|")
+  );
+
+  return { tiles, walls, fixtures };
+}
 
 function readCatalog(): Catalog {
   try {
     const raw = typeof window !== "undefined" ? localStorage.getItem(CATALOG_KEY) : null;
-    if (!raw) return { tiles: [], walls: [], fixtures: [] };
+    if (!raw) return EMPTY_CATALOG;
     const parsed = JSON.parse(raw);
-    return { tiles: parsed.tiles ?? [], walls: parsed.walls ?? [], fixtures: parsed.fixtures ?? [] };
-  } catch { return { tiles: [], walls: [], fixtures: [] }; }
+    return normalizeCatalog(parsed);
+  } catch {
+    return EMPTY_CATALOG;
+  }
 }
 
 function writeCatalog(c: Catalog) {
   try { localStorage.setItem(CATALOG_KEY, JSON.stringify(c)); } catch {}
-}
-
-function toCm(value: number, unit: string): number {
-  if (unit === "inch") return value * 2.54;
-  if (unit === "m") return value * 100;
-  return value;
 }
 
 // ─── Shared UI ────────────────────────────────────────────────────────────────
@@ -95,7 +237,7 @@ export default function CatalogPage() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
   const [tab, setTab] = useState<"tiles" | "walls" | "fixtures">("tiles");
-  const [catalog, setCatalog] = useState<Catalog>({ tiles: [], walls: [], fixtures: [] });
+  const [catalog, setCatalog] = useState<Catalog>(EMPTY_CATALOG);
 
   // Tile form
   const [tileName, setTileName] = useState("");
@@ -137,14 +279,52 @@ export default function CatalogPage() {
     };
   }, []);
 
-  const reload = useCallback(() => setCatalog(readCatalog()), []);
-  useEffect(() => { reload(); }, [reload]);
+  const hydrateCatalog = useCallback(async () => {
+    const localCatalog = readCatalog();
+    setCatalog(localCatalog);
+
+    try {
+      let remoteCatalog = normalizeCatalog(await getPlannerCatalog());
+
+      const remoteTileKeys = new Set(remoteCatalog.tiles.map((item) => item.key));
+      const remoteWallKeys = new Set(remoteCatalog.walls.map((item) => item.key));
+      const remoteFixtureKeys = new Set(remoteCatalog.fixtures.map((item) => item.key));
+
+      const syncTasks: Promise<unknown>[] = [];
+
+      localCatalog.tiles
+        .filter((item) => !remoteTileKeys.has(item.key))
+        .forEach((item) => syncTasks.push(addPlannerCatalogItem("tile", { ...item })));
+
+      localCatalog.walls
+        .filter((item) => !remoteWallKeys.has(item.key))
+        .forEach((item) => syncTasks.push(addPlannerCatalogItem("wall", { ...item })));
+
+      localCatalog.fixtures
+        .filter((item) => !remoteFixtureKeys.has(item.key))
+        .forEach((item) => syncTasks.push(addPlannerCatalogItem("fixture", { ...item })));
+
+      if (syncTasks.length > 0) {
+        await Promise.allSettled(syncTasks);
+        remoteCatalog = normalizeCatalog(await getPlannerCatalog());
+      }
+
+      writeCatalog(remoteCatalog);
+      setCatalog(remoteCatalog);
+    } catch {
+      setCatalog(localCatalog);
+    }
+  }, []);
 
   useEffect(() => {
-    const h = () => reload();
+    if (user) void hydrateCatalog();
+  }, [user, hydrateCatalog]);
+
+  useEffect(() => {
+    const h = () => setCatalog(readCatalog());
     window.addEventListener("storage", h);
     return () => window.removeEventListener("storage", h);
-  }, [reload]);
+  }, []);
 
   // Image compression helper
   const compressImage = useCallback((file: File): Promise<string> => {
@@ -188,31 +368,27 @@ export default function CatalogPage() {
     if (!tileImgUrl) { alert("กรุณาเลือกรูป"); return; }
     if (!tileName.trim()) { alert("กรุณาใส่ชื่อ"); return; }
     try {
-      const created = await addCatalogItem({
-        name: tileName.trim(),
-        widthCm: Number(toCm(tileW, tileUnit).toFixed(2)),
-        heightCm: Number(toCm(tileL, tileUnit).toFixed(2)),
+      const created = await addPlannerCatalogItem("tile", {
+        key: `custom_${Date.now()}`,
+        label: tileName.trim(),
+        type: "image",
+        url: tileImgUrl,
+        width: tileW,
+        length: tileL,
+        unit: tileUnit,
         pricePerBox: Number(tilePrice || 0),
         tilesPerBox: Math.max(1, parseInt(String(tilePerBox), 10) || 1),
-        color: "",
-        note: "",
       });
+
+      const normalizedTile = normalizeTile(created);
+      if (!normalizedTile) {
+        throw new Error("ข้อมูลที่บันทึกไม่สมบูรณ์");
+      }
 
       const next = { ...catalog };
       next.tiles = [
         ...next.tiles,
-        {
-          key: `custom_${Date.now()}`,
-          label: tileName.trim(),
-          type: "image",
-          url: tileImgUrl,
-          width: tileW,
-          length: tileL,
-          unit: tileUnit,
-          pricePerBox: tilePrice,
-          tilesPerBox: tilePerBox,
-          dbId: created.id,
-        },
+        normalizedTile,
       ];
       writeCatalog(next);
       setCatalog(next);
@@ -226,25 +402,62 @@ export default function CatalogPage() {
     }
   }, [catalog, tileName, tileImgUrl, tileW, tileL, tileUnit, tilePrice, tilePerBox]);
 
-  const saveWall = useCallback(() => {
+  const saveWall = useCallback(async () => {
     if (!wallImgUrl) { alert("กรุณาเลือกรูป"); return; }
     if (!wallName.trim()) { alert("กรุณาใส่ชื่อ"); return; }
-    const next = { ...catalog };
-    next.walls = [...next.walls, { key: `custom_wall_${Date.now()}`, label: wallName.trim(), url: wallImgUrl, repeatX: 2, repeatYPerMeter: 1 }];
-    writeCatalog(next); setCatalog(next);
-    setWallName(""); setWallImgUrl(null); setWallImgName("");
+    try {
+      const created = await addPlannerCatalogItem("wall", {
+        key: `custom_wall_${Date.now()}`,
+        label: wallName.trim(),
+        type: "image",
+        url: wallImgUrl,
+        repeatX: 2,
+        repeatYPerMeter: 1,
+      });
+
+      const normalizedWall = normalizeWall(created);
+      if (!normalizedWall) {
+        throw new Error("ข้อมูลที่บันทึกไม่สมบูรณ์");
+      }
+
+      const next = { ...catalog };
+      next.walls = [...next.walls, normalizedWall];
+      writeCatalog(next);
+      setCatalog(next);
+      setWallName("");
+      setWallImgUrl(null);
+      setWallImgName("");
+    } catch (error) {
+      alert((error as Error).message || "บันทึกไม่สำเร็จ");
+    }
   }, [catalog, wallName, wallImgUrl]);
 
-  const saveFixture = useCallback(() => {
+  const saveFixture = useCallback(async () => {
     if (!fixName.trim()) { alert("กรุณาใส่ชื่อ"); return; }
-    const next = { ...catalog };
-    next.fixtures = [...next.fixtures, {
-      key: `custom_fixture_${Date.now()}`, label: fixName.trim(), renderAs: fixStyle,
-      width: fixW, height: fixH, depth: fixStyle === "window" ? 0.08 : 0.1,
-      preview: fixStyle === "window" ? { base: "#93c5fd", accent: "#e2e8f0" } : { base: "#b08968", accent: "#fef9c3" }
-    }];
-    writeCatalog(next); setCatalog(next);
-    setFixName("");
+    try {
+      const created = await addPlannerCatalogItem("fixture", {
+        key: `custom_fixture_${Date.now()}`,
+        label: fixName.trim(),
+        renderAs: fixStyle,
+        width: fixW,
+        height: fixH,
+        depth: fixStyle === "window" ? 0.08 : 0.1,
+        preview: fixStyle === "window" ? { base: "#93c5fd", accent: "#e2e8f0" } : { base: "#b08968", accent: "#fef9c3" },
+      });
+
+      const normalizedFixture = normalizeFixture(created);
+      if (!normalizedFixture) {
+        throw new Error("ข้อมูลที่บันทึกไม่สมบูรณ์");
+      }
+
+      const next = { ...catalog };
+      next.fixtures = [...next.fixtures, normalizedFixture];
+      writeCatalog(next);
+      setCatalog(next);
+      setFixName("");
+    } catch (error) {
+      alert((error as Error).message || "บันทึกไม่สำเร็จ");
+    }
   }, [catalog, fixName, fixStyle, fixW, fixH]);
 
   const deleteTile = useCallback(async (key: string) => {
@@ -252,9 +465,7 @@ export default function CatalogPage() {
     if (!tile) return;
 
     try {
-      if (tile.dbId) {
-        await deleteCatalogItem(tile.dbId);
-      }
+      if (tile.dbId) await deletePlannerCatalogItem(tile.dbId);
       const next = { ...catalog, tiles: catalog.tiles.filter((t) => t.key !== key) };
       writeCatalog(next);
       setCatalog(next);
@@ -262,8 +473,34 @@ export default function CatalogPage() {
       alert((error as Error).message || "ลบไม่สำเร็จ");
     }
   }, [catalog]);
-  const deleteWall    = useCallback((key: string) => { const next = { ...catalog, walls: catalog.walls.filter(w => w.key !== key) }; writeCatalog(next); setCatalog(next); }, [catalog]);
-  const deleteFixture = useCallback((key: string) => { const next = { ...catalog, fixtures: catalog.fixtures.filter(f => f.key !== key) }; writeCatalog(next); setCatalog(next); }, [catalog]);
+
+  const deleteWall = useCallback(async (key: string) => {
+    const wall = catalog.walls.find((w) => w.key === key);
+    if (!wall) return;
+
+    try {
+      if (wall.dbId) await deletePlannerCatalogItem(wall.dbId);
+      const next = { ...catalog, walls: catalog.walls.filter((w) => w.key !== key) };
+      writeCatalog(next);
+      setCatalog(next);
+    } catch (error) {
+      alert((error as Error).message || "ลบไม่สำเร็จ");
+    }
+  }, [catalog]);
+
+  const deleteFixture = useCallback(async (key: string) => {
+    const fixture = catalog.fixtures.find((f) => f.key === key);
+    if (!fixture) return;
+
+    try {
+      if (fixture.dbId) await deletePlannerCatalogItem(fixture.dbId);
+      const next = { ...catalog, fixtures: catalog.fixtures.filter((f) => f.key !== key) };
+      writeCatalog(next);
+      setCatalog(next);
+    } catch (error) {
+      alert((error as Error).message || "ลบไม่สำเร็จ");
+    }
+  }, [catalog]);
 
   const tabBtn = (t: typeof tab, label: string, count: number) => (
     <button onClick={() => setTab(t)} style={{ padding: "9px 20px", border: "none", cursor: "pointer", fontSize: "13px", fontWeight: 500, background: tab === t ? "var(--accent,#7c3aed)" : "transparent", color: tab === t ? "#fff" : "var(--text-muted,#888)", borderRadius: "8px" }}>
@@ -555,7 +792,7 @@ export default function CatalogPage() {
       </div>
 
       <div style={{ marginTop: "24px", fontSize: "12px", color: "var(--text-muted,#888)", textAlign: "center" }}>
-        กระเบื้องบันทึกทั้ง API และ localStorage • กำแพง/หน้าต่าง-ประตูบันทึกใน localStorage • เปิด <Link href="/planner" style={{ color: "var(--accent,#7c3aed)" }}>Floor Planner</Link> เพื่อใช้งาน
+        กระเบื้อง/กำแพง/หน้าต่าง-ประตูบันทึกในฐานข้อมูล และ mirror ลง localStorage เพื่อให้ Floor Planner โหลดได้เร็ว • เปิด <Link href="/planner" style={{ color: "var(--accent,#7c3aed)" }}>Floor Planner</Link> เพื่อใช้งาน
       </div>
     </div>
   );

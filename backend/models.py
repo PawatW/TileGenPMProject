@@ -31,6 +31,9 @@ class User(db.Model):
     catalog_items = db.relationship(
         "CalculatorItem", backref="owner", lazy=True, cascade="all, delete-orphan"
     )
+    planner_catalog_items = db.relationship(
+        "PlannerCatalogItem", backref="owner", lazy=True, cascade="all, delete-orphan"
+    )
     quotations = db.relationship(
         "Quotation", backref="creator", lazy=True, cascade="all, delete-orphan"
     )
@@ -74,6 +77,25 @@ class CalculatorItem(db.Model):
     tiles_per_box = db.Column(db.Integer, nullable=False, default=1)
     color = db.Column(db.String(16), nullable=True)
     note = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_now)
+
+
+class PlannerCatalogItem(db.Model):
+    """Planner catalog entries (tile/wall/fixture) with flexible JSON payload."""
+
+    __tablename__ = "planner_catalog_items"
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "item_type", "item_key", name="uq_user_planner_catalog"),
+    )
+
+    id = db.Column(db.String(36), primary_key=True, default=_uuid)
+    user_id = db.Column(
+        db.String(36), db.ForeignKey("users.id"), nullable=False, index=True
+    )
+    item_type = db.Column(db.String(16), nullable=False, index=True)  # tile | wall | fixture
+    item_key = db.Column(db.String(128), nullable=False)
+    label = db.Column(db.String(256), nullable=False)
+    payload_json = db.Column(db.JSON, nullable=False, default=dict)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_now)
 
 
